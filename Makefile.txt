@@ -1,0 +1,56 @@
+SHELL := /bin/bash
+BIN   := bin/agora
+DB    ?= ./data/agora.db
+SEED  ?= ./seed
+ADDR  ?= :8080
+K     ?= 2
+
+# sqlite-vec is a loadable extension, so CGO is required.
+export CGO_ENABLED = 1
+
+.PHONY: build test test-gates cloud-parity data run docker docker-run demo fmt vet clean
+
+build: ## Build the single binary
+	@mkdir -p bin
+	go build -o $(BIN) ./cmd/agora
+
+fmt:
+	go fmt ./...
+
+vet:
+	go vet ./...
+
+test: ## Full hermetic suite — every test runs against the deterministic provider
+	go test ./... -count=1
+
+test-gates: ## Just the two property gates, for fast feedback on the claims that matter
+	go test ./test/... -count=1 -run 'IsolationGate|AnonymityGate' -v
+
+## cloud-parity runs the WHOLE suite with anonymity descoped (K=1).
+## This keeps the descope seam verified continuously, so if anonymity has to be
+## cut late it is a flag flip rather than a discovery.
+cloud-parity:
+	AGORA_K=1 go test ./... -count=1
+
+data: build ## Load seed catalogue, members and events; embed the vocabulary
+	@mkdir -p $(dir $(DB))
+	@rm -f $(DB)
+	@AGORA_SEED=$(SEED) ./$(BIN) --db $(DB) --seed $(SEED) --addr :0 & \
+	 pid=$$!; sleep 2; kill $$pid 2>/dev/null; true
+	@echo "seeded $(DB)"
+
+run: build ## Run locally on $(ADDR)
+	@mkdir -p $(dir $(DB))
+	./$(BIN) --db $(DB) --seed $(SEED) --addr $(ADDR) --k $(K)
+
+docker: ## Build the single image — the only binary artifact
+	docker build -t agora:latest .
+
+docker-run: docker
+	docker run --rm -p 8080:8080 agora:latest
+
+demo: ## Run the scripted walkthrough against a running server
+	@./demo.sh
+
+clean:
+	rm -rf bin data

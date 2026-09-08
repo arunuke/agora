@@ -42,4 +42,3 @@ A system that understands the tastes of each member, that can communicate with o
 2. Users should be able to query their agent to receive periodic recommendations based on their overall usage patterns.
 3. Users should be able to query for matching events with one or more users in their peer group.
 4. Users should be able to receive notifications of approaching events that match their preferences.
-

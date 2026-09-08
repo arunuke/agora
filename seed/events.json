@@ -1,0 +1,33 @@
+{
+  "_note": "Windows are offsets in hours from the simulated clock base (2026-09-08T18:00:00Z), so the demo is reproducible whenever it is opened.",
+  "events": [
+    {
+      "event_id": "ev_interstellar_anniv",
+      "title_id": "t_interstellar",
+      "label": "12th anniversary re-release",
+      "start_offset_h": 240,
+      "end_offset_h": 408
+    },
+    {
+      "event_id": "ev_spooky_season",
+      "title_id": "t_thething",
+      "label": "Spooky season late-night window",
+      "start_offset_h": 500,
+      "end_offset_h": 1000
+    },
+    {
+      "event_id": "ev_ghibli_week",
+      "title_id": "t_totoro",
+      "label": "Studio animation retrospective week",
+      "start_offset_h": 72,
+      "end_offset_h": 240
+    },
+    {
+      "event_id": "ev_docfest",
+      "title_id": "t_freesolo",
+      "label": "Documentary festival streaming window",
+      "start_offset_h": 24,
+      "end_offset_h": 200
+    }
+  ]
+}

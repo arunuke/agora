@@ -1,0 +1,375 @@
+# Claude Feedback Log
+
+Historical record of collaboration with Claude on Agora: where we started, what changed, and why.
+
+---
+
+## Session 1 — 2026-09-08 — Requirements validation
+
+### Task
+
+Validate `Requirements.md` against the conditions in `Guidelines.md` (the PlatformSWE take-home assignment), per `ClaudeDirections.md`.
+
+### Findings
+
+**Blocking — assignment conformance**
+
+| # | Gap | Consequence |
+|---|-----|-------------|
+| 1 | No assignment theme declared | Reviewers cannot grade against a stated bar; the rationale doc is required to explain theme choice |
+| 2 | Self-contained evaluation not a requirement | Assignment names this *critical*. Demo data appeared only as a collector fallback in `ClaudeDirections.md` |
+| 3 | Three deliverables absent from requirements | Deployed prototype, GitHub repo, written + ~5min video rationale, AI transcripts. Video and transcripts had no owner |
+| 4 | Scope exceeded budget by ~an order of magnitude | 3 Go services + protobuf/gRPC + SQLite-vec + scraper + Docker + K8s + EKS/GKE + 80% coverage, against a 1–2h target / 8h hard limit. Assignment explicitly grades scoping ability |
+
+**Substantive — product quality**
+
+| # | Gap | Consequence |
+|---|-----|-------------|
+| 5 | The differentiating idea — cross-agent information isolation — was mentioned once in `Design.md` and never in requirements | Without it, Agora reads as a movie-recommender chatbot |
+| 6 | Assumption 2 ("security not in scope") waived away that same property | Direct contradiction with the thesis |
+| 7 | Peer group undefined | US3 depends on a data model that requirements never specified |
+| 8 | US2 and US4 (periodic recommendations, notifications) need time to pass | The hardest capability would be invisible in a 5-minute review |
+| 9 | No acceptance criteria, no non-goals, no success criteria | `README.md` advertised non-goals and a solution approach that did not exist |
+| 10 | Collector scraped TMDB/JustWatch live | API keys, rate limits, third-party availability in the reviewer's critical path — conflicts with finding 2 |
+
+### Decisions
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Theme | **Theme 3 — Systems & Reliability** | Best fit for a multi-agent arbiter with long-running workflows. Obligates a real failure/concurrency story, which retires the "all communication is synchronous, no failure handling" stance in `Design.md` |
+| Build budget | **2–4 hours** | Forces the cut: single deployable unit, in-process module boundaries, SQLite only, no K8s, no live scraper. gRPC and Kubernetes become documented production steps |
+| Client surface | **Minimal web page + API** | A multi-agent system is hard to appreciate through curl alone. ~30–45 min of cost to make the coordination legible in seconds; curl still works underneath |
+| Headline idea | **Both isolation and workflow, isolation as the demo hook** | See resolution below |
+
+### Key resolution — isolation and reliability are one mechanism
+
+Theme 3 plus "both isolation and workflow" is over budget if built as two features. Resolved by unifying them:
+
+> A convene workflow fans out to member agents in parallel. Each agent returns only a **sealed, derived signal** — never raw preference text. Because the arbiter never needs raw context, it can proceed correctly on partial responses.
+
+One build produces the privacy demo, the partial-failure story, and the long-running workflow. Isolation *buys* graceful degradation rather than trading against it. This became the stated thesis in `Requirements.md`.
+
+### Changes made to Requirements.md
+
+- Added **Theme and Thesis** section naming Theme 3 and the four systems properties to demonstrate.
+- Added **Why the analogy holds** — justifies the cloud-infra → movie-night substitution by naming the preserved property.
+- Rewrote **Goals** from 4 to 6, promoting private per-user context and reviewer-legible demo to first-class goals.
+- Added **Non-Goals** (7 items).
+- Split Assumption 2: authentication out of scope, cross-user information isolation in scope.
+- Rewrote **User Stories** as 6 stories with Given/When/Then acceptance criteria, adding US4 (isolation, with an automated leak-check assertion), US5 (degradation) and US6 (time-shifted workflow).
+- Added **Self-Contained Evaluation and Demo Mode** with seed state and `reset` / `tick` / `chaos` controls.
+- Added **Deliverables**, **Success Criteria** and **Open Risks**.
+
+### Open items carried forward to Design
+
+- Group membership model (symmetric? multi-group?) — US3 needs it, requirements deliberately left it to Design.
+- What exactly a "sealed signal" contains, and how the arbiter reconciles signals without pooling raw context.
+- Deterministic fallback scoring function for the LLM-outage path.
+- Checkpoint granularity for workflow durability.
+
+---
+
+## Session 2 — 2026-09-08 — Scope reduction round
+
+### Arun's proposals
+
+1. De-scope the collector; ship mock/seeded catalog data as a component instead.
+2. Run everything in a single container.
+3. Drop REST in favour of gRPC only, with reviewers using `grpcurl`.
+4. Fix the prototype to a single family group, removing creation/join semantics.
+5. Lead with data isolation and anonymity alongside reliability as the core values.
+
+### Assessment
+
+**Agreed: 1, 2, 4, 5.**
+
+On (1), the reasoning was sound and worth recording: catalog data is world-state, not user-generated context, so removing the collector costs the isolation thesis nothing. Added a condition — retain the normalized schema as an artifact so the production collector has a defined target, keeping "collector is a production item" a real claim rather than a hand-wave.
+
+On (4), noted that this is not the scope-reduction it appears to be from a privacy standpoint. Cross-group isolation is the easy case; within-group anonymity is the hard one, and a small family is its adversarial setting. The cut removes join semantics without softening the claim.
+
+**Pushed back on (3), and Arun agreed to the reverse cut.**
+
+gRPC-only removes fewer components than it appears to:
+- Browsers cannot speak gRPC natively, so a web page needs grpc-web plus an Envoy proxy — a component added, not removed. This would have cost the web surface agreed in Session 1.
+- It puts a `grpcurl` install, server reflection, and service/method discovery on the reviewer's path, against an assignment that cannot accept submissions requiring local installation.
+- `Implementation.md` had already reasoned this out: *"Using grpcurl could have unified a singular interface... but not considered since it adds additional complexity to the client."*
+
+Since agent and arbiter share a binary, there is no wire between them and gRPC would be ceremony around a function call. **Decision: drop gRPC entirely from the prototype**, keep HTTP/JSON on one port serving both the static page and the API, and write the `.proto` as an unwired design artifact.
+
+### Follow-up decision — the package boundary
+
+Arun asked whether two Go packages exporting public methods was sufficient. Refined to: **the arbiter owns an interface that the agent package satisfies** (consumer-defined, per Go convention). Justified by three concrete payoffs rather than abstraction for its own sake:
+
+- The chaos switch is a decorator implementing that interface, so fault injection requires no conditionals inside the workflow.
+- The production gRPC split becomes a second implementation of an existing contract, making "the split is mechanical" true rather than aspirational.
+- The convene fan-out is genuinely concurrent — goroutine per member under a real `context` deadline — so partial failure is actual cancellation, not a sleep and a fabricated error. Under Theme 3 that distinction is what is being graded.
+
+Same pattern applied to the LLM: one interface, a real provider implementation, and a deterministic local implementation that the degradation path uses. This also satisfies the swappable-provider requirement from `ClaudeDirections.md`.
+
+### Anonymity strength
+
+Chosen: **k-threshold on justifications.** A constraint appears in a group justification only if at least *k* members share it (k=2 for ~5 members). Below threshold it still influences ranking, silently. Arun's framing: *"it shares only information the other user is sharing without leaking all of their context."*
+
+Recorded tradeoff: this makes explanations coarser — "the family leans short" rather than "Priya wants something short." Accepted, mitigated by low *k* and by preserving ranking influence, and flagged for explicit mention in the written rationale rather than glossed over.
+
+### Changes made
+
+- `Requirements.md`: separated isolation from anonymity in the thesis and named the small-group adversarial case; rewrote Goals (7, was 6) around anonymised reconciliation and a seeded catalog; expanded Non-Goals to 9, adding the collector, gRPC/protobuf, group join semantics and multi-group membership; added Assumption 5 (one fixed family); rewrote US4 with separate isolation and anonymity criteria and two build-gate assertions; updated seed state to one family with at least one singleton preference — the case the threshold must suppress; added the explanation-quality tradeoff to Open Risks.
+- `FAQ.md`: added six entries covering the transport decision, what keeps the boundary real without gRPC, why removing the collector is safe, why one group is harder rather than easier, the k-threshold, and the explanation-quality tradeoff.
+
+### Net component count
+
+Before: 3 services, protobuf/gRPC, SQLite + sqlite-vec, scraper, Docker images, K8s manifests, managed cluster.
+After: 1 binary, 2 packages, 2 interfaces, SQLite, seeded JSON catalog, 1 container, 1 port.
+
+---
+
+## Session 3 — 2026-09-08 — Anchoring the theme on workflow pain
+
+### Arun's direction
+
+Theme 3 asks for a solution to *a real workflow pain point*. Isolation and anonymity should be named explicitly as pain points in a real workflow that the solution addresses — not presented as abstract design properties.
+
+### Assessment
+
+Correct, and the previous framing was measurably weaker. Isolation and anonymity read as elegant architecture rather than as responses to something that hurts. The theme rewards pain; the requirements were describing taste.
+
+Forcing the pain-point framing also surfaced the strongest argument in the project, which had been left implicit: **attribution suppresses the honest input the system runs on.** Anonymity is not a privacy feature layered onto the design — it is the precondition for obtaining data at all. That reframing moves anonymity upstream of correctness, which is what earns it a place in a reliability submission rather than beside one.
+
+### Three pain points named
+
+| Pain | Today | Agora |
+|---|---|---|
+| 1. Data needed for a correct answer cannot be pooled | Storage on-call *cannot* read OVN Central — team boundary, compliance, blast radius. Diagnosis becomes a serialized human relay in Slack; MTTR is dominated by cross-boundary round-trips, not root-cause difficulty | Arbiter reconciles sealed derived signals; nothing pooled, no boundary crossed, round-trips parallel at machine speed |
+| 2. Attribution suppresses sharing | Output names fault ("Networking had the wrong IP binding"), so teams get careful about what they expose — worsening Pain 1. The dynamic blameless postmortems exist to counter | Constraint enters the explanation only at *k* or more participants, never attributed to a source |
+| 3. Coordination across a boundary hangs | Diagnosis blocks on whoever does not answer. A coordinator that waits for everyone waits forever, at 3am | Parallel fan-out under per-participant deadline; proceeds at reduced quorum, labeled |
+
+Each maps onto the substituted domain without loss: private taste profiles with no shared store; "we picked this because Priya wanted something short" causing Priya to stop being honest with her agent; a convene blocking on the member still at work.
+
+### Secondary gain
+
+The framing produced a much sharper answer to *"what could a single LLM call with everyone's preferences in the prompt not do?"* Previously the answer was architectural and somewhat weak — it would produce a comparable slate. The answer now is that it could not **obtain the inputs**, because in both domains participants share honestly only with something that will neither pool their context nor attribute their position back to them. This belongs in the video.
+
+### Changes made
+
+- `Requirements.md`: restructured **Theme and Thesis** to state which two of Theme 3's three paths are claimed; added *The real workflow, and where it hurts* with the three pains, each as today / why the obvious fix is blocked / what Agora does; added *The same three pains in the substituted domain*; moved the thesis beneath them so it reads as a response to stated pain; added the "could not obtain the inputs" closing argument.
+- `FAQ.md`: added *"Theme 3 asks for a real workflow pain point. What is it?"* and *"Isn't anonymity a privacy feature rather than a systems concern?"*, and expanded the theme entry to name the two claimed paths.
+
+---
+
+## Session 4 — 2026-09-08 — Document split and rescoped design
+
+`Requirements.md` restored to its original pre-review form so the delta is legible. Rescoped content moved to `Requirements_Rescoped.md`. New `Design_Rescoped.md` written against the agreed constraints; `Design.md` left untouched as the record of the original design.
+
+The two reference sections below summarise every change in both documents.
+
+---
+
+# Requirements Tradeoffs
+
+`Requirements.md` → `Requirements_Rescoped.md`. Read as: what we gave up, what we bought, and what recovers it later.
+
+| # | Change | Cost | Benefit | Recovered by |
+|---|---|---|---|---|
+| R1 | Declared **Theme 3** and named which two of its three paths are claimed | Commits us to a real failure/concurrency story; retires "all communication is synchronous" | Reviewers grade against a stated bar instead of guessing. Required for the rationale doc | — |
+| R2 | Anchored the theme on **three named workflow pain points** rather than abstract properties | More prose | Isolation and anonymity become responses to documented pain, not design taste. Produced the strongest argument in the project — attribution suppresses the input the system runs on | — |
+| R3 | Split **isolation** from **anonymity**, and marked isolation as *inherited* and anonymity as *net-new* | Two claims to defend rather than one | Only the second is hard; conflating them undersold the work. See the anonymity claim below | — |
+| R4 | Added the **k-threshold** on justifications | Explanations get coarser: "the family leans short," not "Priya wants short" | Turns a privacy slogan into a property testable in 30 seconds | `k` becomes the domain-translation knob rather than a fixed constant |
+| R5 | **Collector removed**; catalog seeded | No live data; no normalization demo | Removes a service and takes third-party uptime, API keys and rate limits off the reviewer's critical path. Catalog is world-state, not user context, so the thesis is untouched | Collector writes the identical schema — additive |
+| R6 | **gRPC/protobuf dropped** from the wire | The inter-service hop is not demonstrated at runtime | Removes codegen, reflection, and the grpc-web proxy a browser would have needed. No wire exists between packages in one binary anyway | `.proto` written as an artifact; second implementation of an existing interface |
+| R7 | **Kubernetes dropped** | No orchestration story | Highest-cost, lowest-visibility element in the plan | Manifests + Helm/ArgoCD in production |
+| R8 | **One fixed family group**; no join semantics | No group CRUD | Not a softening — within-group anonymity is the *hard* case, and a small family is its adversarial setting | Group CRUD in production |
+| R9 | Split Assumption 2: **authn out of scope, isolation in scope** | — | The original wording waived away the thesis | JWT/mTLS documented, not built |
+| R10 | Added **acceptance criteria** to all six user stories; two of them as **build gates** | Test-writing time | US4's leak check fails the build rather than failing in a demo. LLM-generated justification text is the likeliest accidental leak path | — |
+| R11 | Added **US5 degradation** and **US6 simulated clock** | Two capabilities to build | Without `tick`, the long-running workflow — the hardest part — is invisible in a five-minute review | Real timers replace the simulated clock |
+| R12 | Added **Non-Goals, Deliverables, Success Criteria, Demo Mode** | — | `README.md` had advertised non-goals that did not exist; the video and AI transcripts had no owner | — |
+
+**Net:** four user stories with no acceptance criteria became six with testable ones; the deliverable list went from absent to complete; and the component count fell from 3 services + protobuf + sqlite-vec + scraper + Docker + K8s + managed cluster to **1 binary, 2 packages, 2 interfaces, SQLite + sqlite-vec, a seeded catalog, 1 container, 1 port.**
+
+## The anonymity claim — stated precisely
+
+### Correction: Claude over-claimed, and the corrected version is stronger
+
+Claude originally framed attribution as a documented pain in the cloud on-call workflow — *"teams know output names fault, so they are careful about what they expose"* — and leaned on blameless postmortems as evidence. Arun corrected this from direct experience: **in the real cloud scenario anonymity is not a critical ask.** It is acceptable, often desirable, for Storage to know how Networking is configured and for a root-cause summary to name the subsystem at fault. The participants are teams separated by *access control*; the boundary concerns reachability, not exposure.
+
+The correction produced a better claim than the original overstatement:
+
+| Property | Cloud infrastructure | Family movie night | Status |
+|---|---|---|---|
+| **Isolation** — cannot read another's raw context | Hard boundary. Storage *cannot* read OVN Central | No shared store; taste profiles are private | **Inherited.** Load-bearing in both |
+| **Anonymity** — cannot attribute a derived signal | Largely a non-issue | Naming who wanted what causes teasing, negotiation, members going quiet with their own agent | **Net-new.** Appears only on translation |
+| **Coordination hangs** | Blocks on the peer asleep or paged | Blocks on the member still at work | **Inherited.** Load-bearing in both |
+
+Anonymity is net-new because the participants change kind: teams separated by access control become **people with ongoing relationships to each other**. The same output that is useful between subsystems is corrosive between siblings. The target domain is therefore **strictly harder along one axis** than the source — porting a systems problem into a human one does not merely relabel constraints, it adds one. That is a more interesting thing to have found than the pain-was-always-there story Claude first wrote.
+
+**Consequence: `k` is the domain-translation knob, not a magic number.** `k=1` reproduces the cloud case exactly (attribution acceptable, every constraint speakable); `k=2` is the family setting; `k=n` is total anonymity. The prototype implements a **superset** of the source domain's requirements and ports back by changing one value. This is a better justification for `k` than "k=2 because five members."
+
+### The claim is enforced at three layers, not one step
+
+A natural reading — *"Loop A returns responses, the arbiter anonymizes them, Loop B consumes them"* — compresses three mechanisms into one and misplaces where `k` acts. Two clarifications:
+
+- Fan-out returns **N** responses, one per member whose agent answered. N is the quorum count.
+- **`k` thresholds constraint counts, not responses.** N and `k` are unrelated numbers that both happen to be small.
+
+| Layer | Where | Attack defeated | Conditional? |
+|---|---|---|---|
+| 1. Content de-identification | Loop A at emission — enums only, no free text ever enters the signal | Verbatim and paraphrase leak | Unconditional |
+| 2. Identity stripping | Fan-out boundary — workflow keeps the member↔signal map for quorum accounting; reconciler gets an unordered bag | Direct attribution | Unconditional |
+| 3. `k`-threshold | Reconciler, on the tally | **Inference from rarity** | Uses `k` |
+
+Layer 3 is why `k` exists. Layers 1 and 2 prevent *reading* another member's context; neither prevents *deducing* it. If a justification mentions a Korean horror title, member B — knowing their own preferences and able to reason about the others — infers Priya immediately. The name was already stripped; **rarity did the identifying.**
+
+### Worked example — 5 members, 4 responded
+
+| Constraint | Signals | Class | Effect |
+|---|---|---|---|
+| `runtime_max_min: 120` | 3 | public | ranks **and** speakable |
+| `genre: comedy, prefer` | 2 | public | ranks **and** speakable |
+| `era: 1990s, prefer` | 1 | private | ranks only |
+| `language: korean, prefer` | 1 | private | ranks only |
+| `genre: horror` — veto | 1 | veto | filtered before Loop B |
+
+Loop B receives veto-filtered candidates already scored on **all five** constraints, plus a public list of only *short* and *comedy*. It ranks with full signal and speaks about two of it.
+
+### Anonymity must be cleanly excisable
+
+Anonymity is the most likely casualty if the build runs long, so it is designed as a **configuration change, not a code excision**. The three-layer split is what makes this possible: the layers are independent rather than stacked, and only the third is anonymity.
+
+**The cut line runs between layers 2 and 3.** Layers 1 and 2 are isolation — inherited, load-bearing, never cut. Layer 3 is anonymity — net-new, cut by setting `k = 1`.
+
+- One `AnonymityPolicy` struct (`K`, `GateJustifications`, `RevealVetoes`) lives in `arbiter/anonymity.go`. **No package outside that file may reference `k` or the public/private classification.** That invariant is what keeps the cut one line.
+- The veto *filter* stays under any policy — it is a correctness feature. Only its *silence* is an anonymity feature, so `RevealVetoes` governs that alone.
+- `ConveneResponse` keeps one field name under both policies. Renaming it per policy would make the cut client-visible and therefore not a cut.
+- At `k = 1` justifications get richer but names still never appear, because layer 2 stripped identity upstream. Descoping lands on **exactly cloud-domain behavior**, which is the correct floor.
+
+**The tests must split along the same line**, and this is the easy thing to get wrong. The two US4 gates go in separate files: `test/isolation_gate_test.go` always runs; `test/anonymity_gate_test.go` is guarded on `policy.GateJustifications`. If both assertions share a file, descoping anonymity breaks the isolation gate and the cut stops being clean.
+
+**Descope ladder, in cut order:** anonymity → Loop B (fall to the existing deterministic fallback) → scheduled convenes and the simulated clock. Cutting from the bottom first would be wrong: US6 is cheap and demonstrates durability, while anonymity is the most expensive claim to defend and the only genuinely optional one.
+
+---
+
+# Implementation Tradeoffs
+
+`Implementation.md` → `Implementation_Rescoped.md`. Every drop is for **timeline reasons only**, with a named production successor.
+
+| # | Element | Original | Rescoped | Production path |
+|---|---|---|---|---|
+| I1 | Go, JSON, REST | Guidelines 1–3 | **Kept**, all three | — |
+| I2 | SQLite + sqlite-vec | Guideline 6 | **Kept** | Postgres + pgvector at catalog scale |
+| I3 | Kubernetes orchestration | Guideline 4 | **Dropped — timeline** | Manifests + Helm/ArgoCD; same image runs unchanged |
+| I4 | Managed K8s (EKS/GKE) | Guideline 7 | **Dropped — timeline** | Same image, no rebuild |
+| I5 | gRPC inter-service | Guideline 5 | **Dropped — timeline** | `proto/agora.proto` written as artifact; production generates from a real contract |
+| I6 | HTTP framework | Gin preferred | **`net/http`** | Go 1.22+ ServeMux does method+pattern routing. Seven routes, zero dependencies, nothing to learn mid-build. Gin earns its place at dozens of routes |
+| I7 | Folder layout | `src/{services,deploy,test}` | `cmd/` + `internal/` + `test/` | Go convention — and see I8 |
+| I8 | Trust boundary enforcement | Convention | **Compiler-enforced** | `internal/agent/internal/rawctx/` is importable only under `internal/agent/`. The arbiter *cannot compile* if it reaches raw context or profile vectors. Isolation stops being a code-review convention |
+| I9 | Artifacts | K8s manifests, per-service images, source | **One Docker image + source** | `deploy/` tree returns with Kubernetes |
+| I10 | Coverage target | ~80% aspirational | **Gates and reconciler full; rest best-effort** | Stated honestly rather than quietly missed. Coverage is the wrong metric when two specific properties carry the submission |
+
+## Test infrastructure — the substantive addition
+
+Tests were a two-line note in the original. They are now the centre of the implementation plan, because Agora's claims are exactly the kind that pass casual inspection and fail under adversarial input.
+
+**Four design principles:** hermetic by default (every test runs against `llm.Deterministic`; a gate that depends on a network call is not a gate); two gates in two files split along the descope line; adversarial rather than confirmatory; and coverage explicitly not the target.
+
+**Three leak modes, three detection mechanisms.** Substring matching alone catches only verbatim leaks. The isolation gate also normalizes (stem, lowercase, strip punctuation) for variant leaks, and embeds both A's raw preference and each response to B, asserting cosine similarity stays below threshold, for **paraphrase** leaks. The embedding check is a second dividend from keeping `sqlite-vec`.
+
+**Canary preferences.** Each seeded member carries one rare high-entropy preference ("Bulgarian claymation") used solely for leak detection, so any substring hit is unambiguous rather than coincidental.
+
+**A six-attack battery** run for every ordered pair of members: direct ask, indirect ("who wanted this?"), convene-then-interrogate, prompt injection, roleplay-as-debugger, and partial-knowledge inference. The last is the anonymity boundary case seen from the isolation side, and is the only policy-aware assertion in an otherwise unconditional file.
+
+**Two tests worth calling out individually:**
+
+- *Member hangs indefinitely* → assert the convene still returns within budget. This catches a missing `context` deadline, which is the most likely concurrency bug in the design and which **passes every other test in the suite**.
+- *Shuffle-invariance* → permuting incoming signal order must not change any output. This does double duty: a determinism test and an anonymity test, because if output depends on signal order and order correlates with member index, there is an ordering side channel leaking identity. Cheap to write, and it finds a bug class that reading the code does not.
+
+**`make cloud-parity`** runs the full suite at `--k=1`, continuously verifying that the anonymity descope seam still works. If we do have to cut at hour six, it is a config flip rather than a discovery.
+
+## Build order
+
+Sequenced so the riskiest and most differentiating work happens while there is time to react. Two deliberate orderings: `llm.Deterministic` is built **before** the live provider, so the system is testable from the first hour; and **both gates are written before Loop B**, because they are the specification. Writing them last means discovering at hour seven that the claim was never true.
+
+## I11 — The web UI, cut (reversal of a Session 1 decision)
+
+Arun challenged the page directly: *is curl not adequate, and what does the UI provide beyond better UX?* Claude had recommended a minimal page in Session 1 and **reversed that recommendation.** Two arguments, one of which Claude should have made the first time.
+
+1. **The required video already does the UI's job.** The page's distinctive value was making coordination legible at a glance. A ~5 minute video is a *mandatory deliverable* and is precisely the medium for that, so the UI's unique contribution was largely duplicated by something that must be produced anyway. This was available in Session 1 and was missed.
+2. **For an isolation claim, raw JSON is more credible than a rendered page.** This is the argument Claude had not made. A UI showing "no leak" is *weaker* evidence than `curl` showing no leak, because the page is a layer that could be filtering client-side. A reviewer auditing a privacy guarantee trusts the wire, not our HTML. **The page would have undercut the exact claim it was meant to showcase.**
+
+Plus Arun's own framing: a second test surface and an independent failure mode — asset serving, client state, JS — for no distinct gain.
+
+**Honestly stated cost.** The isolation "aha" is comparative — the same convene as seen by different members — and through `curl` that becomes several invocations and a mental diff. That is a real loss, not a wash.
+
+**Recovery: `POST /v1/demo/walkthrough`.** The server runs the whole scripted scenario internally and returns a narrated transcript: each step with actor, request, response, and the assertion it demonstrates. The decisive property is that **it shares its implementation with the Tier 6 demo smoke test** — one `demo.Scenario` orchestration, the test asserting on the steps, the endpoint returning them. No new technology, no new test surface, and the demo path is verified by CI rather than hoped to still work on submission day.
+
+**Net:** ~30–45 minutes of build time recovered, one maintenance surface removed, and a *more* credible isolation demonstration than the version with a UI. Replacements are all cheap: plain-text usage at `GET /`, a `demo.sh`, and copy-pasteable blocks in the README.
+
+**Pattern worth noting for the rationale doc.** This is the second time in the project that cutting scope *improved* the artifact rather than merely shrinking it — the first being that dropping the collector removed a service without touching the thesis. Both suggest the original design carried elements added by default rather than by argument.
+
+---
+
+# Design Tradeoffs
+
+`Design.md` → `Design_Rescoped.md`. The governing rule: **every removal is a deferral, not a deletion** — each has a named successor and a defined seam.
+
+| # | Element | Original | Rescoped | Why it is safe |
+|---|---|---|---|---|
+| D1 | Deployment | K8s, managed EKS/GKE, kubectl | One container image, **one process** | Packages in one binary have nothing to supervise — no supervisord/s6. The boundary that matters is the interface, not the process. A `--role` flag makes the split visible later in ~10 lines |
+| D2 | Services | 3 deployed | 2 Go packages + `store` + `llm` | Arbiter declares `MemberAgent`; agent satisfies it. Consumer-defined per Go convention, so the gRPC split is a new implementation rather than a refactor |
+| D3 | Transport | gRPC on the wire | Internal calls with request/response semantics | Structs map 1:1 onto `proto/agora.proto`, written but not compiled |
+| D4 | Collector | Scrapes TMDB/JustWatch, LLM normalizes at collect time | `seed/catalog.json`, pre-normalized, same schema | Production collector writes the identical tables; zero consumer changes |
+| D5 | Async collection loop | Background scrape | Removed | Returns with the collector |
+| D6 | Client transport | REST + curl | HTTP/JSON + curl **and** a static page on the same port | Browsers cannot speak gRPC natively; keeping HTTP is what makes the page free |
+| D7 | Store | SQLite + sqlite-vec | **Unchanged — sqlite-vec retained** | See D13 below. Claude initially recommended dropping it and was overruled, correctly |
+| D8 | Session table | Separate entity | Folded into `profiles` | One group + stable `member_id` means a session entity earns nothing yet. Returns with authentication |
+| D9 | Arbiter workflow | Prose description | Checkpointed state machine, persisted before every external call | Survives restart; signals persisted so a restart does not re-consult members who already answered |
+| D10 | The LLM loop | One loop, tool calling + RAG | **Two loops split by trust level** | The substantive new design — see below |
+| D11 | Tools | 5 named tools | 4 mapped to Loop A, 1 promoted to the workflow | `get_matching_events_in_group` needs fan-out, deadlines, quorum and checkpointing, none of which a single tool call can express |
+| D12 | Notifications | Piggybacked | Unchanged | NATS in production; the field stays for polling clients |
+
+## D10 — the two-loop model, in detail
+
+The single most important design change, and the reason isolation is defensible rather than merely asserted.
+
+**The problem with one loop.** A single LLM loop receiving every member's context cannot satisfy US4. Isolation would rest entirely on instructing the model not to repeat what it can see — which fails under prompt injection, fails under paraphrase, and fails *silently*.
+
+**The split.** Loop A runs per member at private trust level, sees exactly one member's raw context, and emits a sealed signal. Loop B runs once at group trust level over veto-filtered candidates and public constraints, and **never sees member context at all**.
+
+> A member's raw context is never present in any context window producing output shown to another member. Not filtered out — never present. Member B cannot extract member A's preferences from Loop B because they were never there.
+
+**Three supporting decisions:**
+
+- **Closed-vocabulary sealed signals.** `dim`/`value` from a fixed enumeration, no free text, no `member_id` by the time the reconciler sees them. Free text would make the k-threshold undecidable — you cannot reliably count "wants something short" and "prefers brief films" as the same constraint.
+- **Reconciliation is deterministic, no LLM.** The privacy-critical step is the one step that is not a model call, so its behavior is testable and stable.
+- **Vetoes are silently pre-filtered.** A veto is held by one member, so it is permanently below threshold and can never be spoken — yet must be honored absolutely. Resolved by removing vetoed titles before Loop B sees the candidate set: enforcement total, explanation impossible. This is the clearest instance of the design's governing idea — the strongest guarantee comes from what we decline to put in front of the model, not from what we ask it to do.
+
+**Falling out of it, for free:** because the arbiter consumes only sealed signals and never any member's full state, it can proceed on partial responses. `k` is absolute rather than relative to responders, so a single responder yields an entirely generic justification — correct, since with one responder any named constraint is attributable. Isolation is what makes graceful degradation cheap rather than a trade against it.
+
+**Unparsed model output is never allowed into a justification.** Typed unmarshal, one retry, then deterministic fallback. That rule is a privacy control before it is a robustness one.
+
+## D13 — sqlite-vec retained, and why the initial recommendation was wrong
+
+Claude recommended dropping `sqlite-vec`, arguing that attribute matching beats embeddings at ~200 titles, that the scoring path must be deterministic anyway because it is the fallback, and that CGO extension loading is packaging friction. Arun overruled it. The overrule was right, and the reasoning is worth recording because it improved the reliability story rather than merely preserving the original design.
+
+**What the recommendation missed.** Loop A must translate free text ("I really can't do jump scares") into a closed-vocabulary constraint. Without vectors, the fallback from LLM extraction is keyword matching — a cliff. With them, the degradation path becomes a graded ladder:
+
+| Tier | Mechanism | Available when |
+|---|---|---|
+| 1 | LLM extraction — negation, idiom, nuance | Normal |
+| 2 | Embed the phrase, nearest-neighbour against embedded canonical vocabulary | Completions down, embeddings up |
+| 3 | Keyword match over the vocabulary | Both down |
+
+Completion and embedding endpoints fail **independently**, so tier 2 is a real operating mode, not a theoretical one. Under Theme 3 a three-tier ladder is a materially better artifact than a binary. `LLMClient` and `Embedder` became separate interfaces so the chaos decorator can fail one and not the other — that is the tier-2 demonstration.
+
+Second use retained: semantic catalog search inside Loop A ("something cozy and autumnal" matches no genre enum but does match synopsis embeddings). This is the RAG pattern from the original `Design.md`, and it sits at private trust level so it raises no isolation question.
+
+**Where vectors are deliberately excluded: reconciliation.** It stays deterministic and enum-only. The k-threshold needs *countable, equal* constraints, and nearest-neighbour similarity does not give "these two members want the same thing" with that crispness. Vectors get free text as far as the vocabulary; from there everything is enums.
+
+**The trap this created, and the rule that closes it.** *A vector is not anonymized merely because it is not text.* A profile embedding is derived but re-identifying and partially invertible, so it obeys the same boundary as `raw_context`. Three vector tables, split by trust level: `profile_vectors` private and scoped-accessor-only; `catalog_vectors` and `vocab_vectors` world-state. **Sealed signals never carry embeddings** — shipping a profile vector across the boundary would both re-identify the member and collapse the countability argument the k-threshold rests on. This is now the single most important rule in the storage design, and it exists only because the extension was kept.
+
+**Packaging risk, mitigated rather than ignored.** CGO with `mattn/go-sqlite3`, multi-stage build sharing a base image so libc matches; a deterministic no-op `Embedder` for hermetic tests; and if extension loading fails at startup the binary logs it, disables tier 2, and boots on tiers 1 and 3 rather than refusing to start. Startup degradation became part of the reliability story.
+
+## Decisions taken
+
+1. **Process model — one process.** No supervisor in the image. `--role` flag available later at ~10 lines if the split needs to be visible before the gRPC move.
+2. **`sqlite-vec` — retained**, per D13.
+3. **Vetoes — silent hard filter**, applied before Loop B sees candidates.
