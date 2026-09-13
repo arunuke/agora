@@ -37,10 +37,10 @@ func (s *Switches) Reset() {
 	s.memberFail, s.memberHang, s.memberLatency = 0, false, 0
 }
 
-func (s *Switches) SetLLMDown(v bool)   { s.mu.Lock(); s.llmDown = v; s.mu.Unlock() }
-func (s *Switches) SetEmbedDown(v bool) { s.mu.Lock(); s.embedDown = v; s.mu.Unlock() }
-func (s *Switches) SetMalformed(v bool) { s.mu.Lock(); s.malformed = v; s.mu.Unlock() }
-func (s *Switches) SetMemberFail(n int) { s.mu.Lock(); s.memberFail = n; s.mu.Unlock() }
+func (s *Switches) SetLLMDown(v bool)    { s.mu.Lock(); s.llmDown = v; s.mu.Unlock() }
+func (s *Switches) SetEmbedDown(v bool)  { s.mu.Lock(); s.embedDown = v; s.mu.Unlock() }
+func (s *Switches) SetMalformed(v bool)  { s.mu.Lock(); s.malformed = v; s.mu.Unlock() }
+func (s *Switches) SetMemberFail(n int)  { s.mu.Lock(); s.memberFail = n; s.mu.Unlock() }
 func (s *Switches) SetMemberHang(v bool) { s.mu.Lock(); s.memberHang = v; s.mu.Unlock() }
 func (s *Switches) SetMemberLatency(d time.Duration) {
 	s.mu.Lock()

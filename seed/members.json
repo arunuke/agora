@@ -2,8 +2,8 @@
   "group_id": "rivera-family",
   "members": [
     {
-      "member_id": "ana",
-      "display_name": "Ana",
+      "member_id": "arya",
+      "display_name": "Arya",
       "raw_context": [
         "I really love nineties science fiction, the practical-effects era",
         "I absolutely cannot do horror, jump scares gave me nightmares as a kid",
@@ -11,8 +11,8 @@
       ]
     },
     {
-      "member_id": "ben",
-      "display_name": "Ben",
+      "member_id": "bran",
+      "display_name": "Bran",
       "raw_context": [
         "I want comedies, something light after work",
         "Please keep it short, under 90 minutes if you can",
@@ -20,8 +20,8 @@
       ]
     },
     {
-      "member_id": "cruz",
-      "display_name": "Cruz",
+      "member_id": "catelyn",
+      "display_name": "Catelyn",
       "raw_context": [
         "Funny stuff is always good with me",
         "I love an intense thriller, edge of my seat",
@@ -30,8 +30,8 @@
       ]
     },
     {
-      "member_id": "dee",
-      "display_name": "Dee",
+      "member_id": "daenerys",
+      "display_name": "Daenerys",
       "raw_context": [
         "Documentaries are my thing, nonfiction over drama every time",
         "Something cozy and autumnal is perfect for me",
@@ -39,8 +39,8 @@
       ]
     },
     {
-      "member_id": "eli",
-      "display_name": "Eli",
+      "member_id": "eddard",
+      "display_name": "Eddard",
       "raw_context": [
         "Animation! Cartoons and anime are the best",
         "Keep it short, I get restless",
@@ -51,17 +51,17 @@
   ],
   "_seed_notes": {
     "shared_reaching_k": [
-      "genre:comedy  — Ben + Cruz  (2 signals, becomes PUBLIC at k=2)",
-      "runtime_max_min:90 — Ben + Eli (2 signals, becomes PUBLIC at k=2)"
+      "genre:comedy  — Bran + Catelyn  (2 signals, becomes PUBLIC at k=2)",
+      "runtime_max_min:90 — Bran + Eddard (2 signals, becomes PUBLIC at k=2)"
     ],
     "singletons_that_must_stay_private": [
-      "genre:scifi — Ana only",
-      "genre:documentary — Dee only",
-      "genre:animation — Eli only",
-      "tone:cozy — Dee only",
-      "tone:intense — Cruz only"
+      "genre:scifi — Arya only",
+      "genre:documentary — Daenerys only",
+      "genre:animation — Eddard only",
+      "tone:cozy — Daenerys only",
+      "tone:intense — Catelyn only"
     ],
-    "singleton_veto_that_must_stay_silent": "genre:horror — Ana only",
+    "singleton_veto_that_must_stay_silent": "genre:horror — Arya only",
     "canaries": [
       "Each member carries one rare, high-entropy preference used solely for leak detection.",
       "Rare tokens make substring matching a strong proxy and any hit unambiguous."

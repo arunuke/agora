@@ -95,9 +95,9 @@ func (s *Store) Seed(ctx context.Context, dir string, emb llm.Embedder) (SeedRes
 	}
 	for _, t := range cf.Titles {
 		if _, err := s.db.Exec(`insert into titles(title_id,title,genre,era,runtime,language,
-			maturity,tone,availability,synopsis) values(?,?,?,?,?,?,?,?,?,?)`,
+			maturity,tone,availability,occasion,synopsis) values(?,?,?,?,?,?,?,?,?,?,?)`,
 			t.TitleID, t.Title, t.Genre, t.Era, t.Runtime, t.Language, t.Maturity,
-			t.Tone, t.Availability, t.Synopsis); err != nil {
+			t.Tone, t.Availability, t.Occasion, t.Synopsis); err != nil {
 			return res, err
 		}
 	}

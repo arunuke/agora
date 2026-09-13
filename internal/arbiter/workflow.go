@@ -18,12 +18,12 @@ import (
 // Convene workflow states. Each is persisted BEFORE the call that causes the
 // next one, so a crash resumes rather than restarts.
 const (
-	StateCreated         = "created"
-	StateFanoutStarted   = "fanout_started"
+	StateCreated          = "created"
+	StateFanoutStarted    = "fanout_started"
 	StateSignalsCollected = "signals_collected"
-	StateReconciled      = "reconciled"
-	StateRanked          = "ranked"
-	StateDelivered       = "delivered"
+	StateReconciled       = "reconciled"
+	StateRanked           = "ranked"
+	StateDelivered        = "delivered"
 )
 
 type Arbiter struct {

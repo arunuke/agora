@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/arunuke/agora/internal/agent"
@@ -29,6 +30,9 @@ type App struct {
 	Emb     llm.Embedder
 	SeedDir string
 	GroupID string
+	// Provider names the active completion provider for /healthz. Never the key.
+	Provider string
+	Model    string
 }
 
 type Options struct {
@@ -52,8 +56,20 @@ func New(ctx context.Context, o Options) (*App, error) {
 	sw := llm.NewSwitches()
 
 	var base llm.LLMClient = llm.Deterministic{}
+	provider, model := "deterministic", "n/a"
 	if o.Live != nil {
 		base = o.Live
+		switch p := o.Live.(type) {
+		case *llm.Live:
+			provider, model = "anthropic", p.Model
+		case *llm.Compat:
+			provider, model = "openai-compatible", p.Model
+			if strings.Contains(p.BaseURL, "11434") {
+				provider = "ollama"
+			}
+		default:
+			provider = "custom"
+		}
 	}
 	// Two decorators over two SEPARATE interfaces. That separation is what
 	// lets chaos fail completions while leaving embeddings healthy, which is
@@ -70,7 +86,7 @@ func New(ctx context.Context, o Options) (*App, error) {
 
 	a := &App{
 		Store: st, Agent: ag, Arbiter: arb, Clock: clk, Switch: sw,
-		Emb: emb, SeedDir: o.SeedDir,
+		Emb: emb, SeedDir: o.SeedDir, Provider: provider, Model: model,
 	}
 	if _, err := a.Reset(ctx); err != nil {
 		st.Close()

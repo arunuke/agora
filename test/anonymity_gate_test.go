@@ -23,7 +23,7 @@ func TestAnonymityGate_JustificationNamesNoMember(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := a.Arbiter.Convene(ctx(), a.GroupID, "ben")
+	res, err := a.Arbiter.Convene(ctx(), a.GroupID, "bran")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestAnonymityGate_JustificationNamesNoMember(t *testing.T) {
 // The inference attack the k-threshold exists to defeat.
 //
 // Stripping names does not stop a member reasoning "the slate mentions Korean
-// horror, I didn't ask for it, and I know the others — that's Priya." Rarity
+// horror, I didn't ask for it, and I know the others — that's Arya." Rarity
 // does the identifying, so nothing below threshold may be spoken.
 //
 // Derived from the vocabulary rather than a hand-written list of expected
@@ -48,7 +48,7 @@ func TestAnonymityGate_NoBelowThresholdConstraintIsSpoken(t *testing.T) {
 	if !a.Arbiter.Policy().GateJustifications {
 		t.Skip("anonymity descoped (K=1)")
 	}
-	res, err := a.Arbiter.Convene(ctx(), a.GroupID, "ben")
+	res, err := a.Arbiter.Convene(ctx(), a.GroupID, "bran")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestAnonymityGate_NoBelowThresholdConstraintIsSpoken(t *testing.T) {
 // Loop B is given the candidate set.
 func TestAnonymityGate_VetoIsHonouredAndUnexplainable(t *testing.T) {
 	a := newApp(t, 2)
-	res, err := a.Arbiter.Convene(ctx(), a.GroupID, "ben")
+	res, err := a.Arbiter.Convene(ctx(), a.GroupID, "bran")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestAnonymityGate_SingleResponderYieldsGenericJustification(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.Switch.SetMemberFail(len(ids) - 1) // only the last member answers
-	res, err := a.Arbiter.Convene(ctx(), a.GroupID, "ben")
+	res, err := a.Arbiter.Convene(ctx(), a.GroupID, "bran")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestAnonymityGate_CloudParityDescopeIsClean(t *testing.T) {
 	if a.Arbiter.Policy().GateJustifications {
 		t.Fatal("K=1 must disable justification gating")
 	}
-	res, err := a.Arbiter.Convene(ctx(), a.GroupID, "ben")
+	res, err := a.Arbiter.Convene(ctx(), a.GroupID, "bran")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestAnonymityGate_CloudParityDescopeIsClean(t *testing.T) {
 	}
 	// And it should be strictly more talkative than the family policy.
 	fam := newAppK(t, 2)
-	famRes, err := fam.Arbiter.Convene(ctx(), fam.GroupID, "ben")
+	famRes, err := fam.Arbiter.Convene(ctx(), fam.GroupID, "bran")
 	if err != nil {
 		t.Fatal(err)
 	}

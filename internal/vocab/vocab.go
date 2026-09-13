@@ -24,6 +24,7 @@ const (
 	DimLanguage     Dim = "language"
 	DimAvailability Dim = "availability"
 	DimMaturity     Dim = "maturity"
+	DimOccasion     Dim = "occasion"
 )
 
 type Polarity string
@@ -122,6 +123,11 @@ var terms = []Term{
 	{DimAvailability, "subscription", "things included with a subscription", []string{"subscription", "included", "streaming", "no extra cost"}},
 	{DimAvailability, "rental", "rentals", []string{"rental", "rent", "paid"}},
 	{DimAvailability, "free_with_ads", "free with ads", []string{"free", "with ads", "ad supported", "ad-supported"}},
+
+	{DimOccasion, "christmas", "christmas films", []string{"christmas", "xmas", "festive", "yuletide", "santa", "holiday season"}},
+	{DimOccasion, "halloween", "halloween films", []string{"halloween", "spooky season", "trick or treat", "all hallows"}},
+	{DimOccasion, "summer", "summer films", []string{"summer", "summery", "beach movie", "poolside", "school holidays"}},
+	{DimOccasion, "autumn", "autumn films", []string{"autumn", "thanksgiving", "harvest", "sweater weather"}},
 
 	{DimMaturity, "all_ages", "something for all ages", []string{"all ages", "family friendly", "family-friendly", "kid friendly", "kids", "children"}},
 	{DimMaturity, "teen", "teen-appropriate films", []string{"teen", "teenager", "pg-13"}},

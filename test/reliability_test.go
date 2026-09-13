@@ -25,7 +25,7 @@ func TestReliability_PartialMemberFailure(t *testing.T) {
 			ids, _ := a.MemberIDs()
 			a.Switch.SetMemberFail(tc.fail)
 
-			res, err := a.Arbiter.Convene(ctx(), a.GroupID, "ben")
+			res, err := a.Arbiter.Convene(ctx(), a.GroupID, "bran")
 			if err != nil {
 				t.Fatalf("convene must complete despite member failure: %v", err)
 			}
@@ -50,7 +50,7 @@ func TestReliability_AllMembersFail(t *testing.T) {
 	ids, _ := a.MemberIDs()
 	a.Switch.SetMemberFail(len(ids))
 
-	res, err := a.Arbiter.Convene(ctx(), a.GroupID, "ben")
+	res, err := a.Arbiter.Convene(ctx(), a.GroupID, "bran")
 	if err != nil {
 		t.Fatalf("convene must complete: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestReliability_HangingMemberCannotHangTheCoordinator(t *testing.T) {
 	start := time.Now()
 	go func() {
 		defer close(done)
-		if _, err := a.Arbiter.Convene(ctx(), a.GroupID, "ben"); err != nil {
+		if _, err := a.Arbiter.Convene(ctx(), a.GroupID, "bran"); err != nil {
 			t.Errorf("convene errored: %v", err)
 		}
 	}()
@@ -108,7 +108,7 @@ func TestReliability_DegradationLadder(t *testing.T) {
 			a.Switch.SetLLMDown(tc.llmDown)
 			a.Switch.SetEmbedDown(tc.embedDown)
 
-			res, err := a.Agent.HandleMessage(ctx(), "cruz", "I want something funny and short")
+			res, err := a.Agent.HandleMessage(ctx(), "catelyn", "I want something funny and short")
 			if err != nil {
 				t.Fatalf("must not error: %v", err)
 			}
@@ -132,7 +132,7 @@ func TestReliability_MalformedOutputNeverReachesTheJustification(t *testing.T) {
 	a := newApp(t, 2)
 	a.Switch.SetMalformed(true)
 
-	res, err := a.Arbiter.Convene(ctx(), a.GroupID, "ben")
+	res, err := a.Arbiter.Convene(ctx(), a.GroupID, "bran")
 	if err != nil {
 		t.Fatalf("malformed output must not fail the convene: %v", err)
 	}

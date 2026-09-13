@@ -373,3 +373,202 @@ Second use retained: semantic catalog search inside Loop A ("something cozy and 
 1. **Process model — one process.** No supervisor in the image. `--role` flag available later at ~10 lines if the split needs to be visible before the gRPC move.
 2. **`sqlite-vec` — retained**, per D13.
 3. **Vetoes — silent hard filter**, applied before Loop B sees candidates.
+
+---
+
+# Build & Deploy Tradeoffs
+
+Covers everything from `Build-and-Deploy.md` onward. Each change is marked **[ASKED]** where Arun requested it and **[ADDED]** where Claude introduced it unprompted, so the record distinguishes direction from initiative.
+
+## What the tests caught during implementation
+
+Two defects found by tests rather than by reading code. In both cases the test that found it existed because the design had predicted that failure mode.
+
+**Defect 1 — an ordering side channel in reconciliation.** Found by `TestDeterminism_ShuffleInvariance` on its first run. The representative `Constraint` in a tally retained the weight of whichever signal arrived first, so two members both wanting `runtime <= 90` at weights 0.8 and 0.5 produced different output depending on arrival order. Not a determinism nit: arrival order can correlate with member index, so the reported weight carried information about *which member spoke first* — an identity side channel that layers 1 and 2 do nothing to close, because no name is involved. Fixed by canonicalising the representative to dim/value/polarity and replacing its weight with the order-independent aggregate.
+
+**Defect 2 — the seed's canaries were not vocabulary-inert.** Ana's canary was *"Bulgarian claymation shorts"*; `claymation` matches the `animation` synonyms and `shorts` matches `runtime<=90`. A string meant as an inert leak marker silently joined Eli's animation constraint and pushed it to count=2. Two real defects: the fixture no longer tested what it claimed, **and the assertion hardcoded the expected singletons** instead of deriving them, so it flagged a correct classification as a violation. Fixed by rewriting the canaries to avoid the vocabulary and deriving the forbidden set from `vocab.Terms()` against the policy's own classification. A hardcoded expectation in a privacy gate is worse than no gate: it fails on correct behaviour and eventually gets silenced.
+
+## Pipeline work — requested vs added
+
+### [ASKED] Direction from Arun
+
+| # | Request | Outcome |
+|---|---|---|
+| A1 | Review `Build-and-Deploy.md`, record scope changes separately | `Build-and-Deploy_Rescoped.md` created |
+| A2 | Docker Hub push | Chosen: separate opt-in `push` target, so `package` and `pipeline` stay credential-free |
+| A3 | Coverage gate | Chosen: **measure and report, do not fail**. Currently 82.6% against an 80% target |
+| A4 | Container healthcheck | Chosen: install `curl` in the runtime image over a self-check binary flag |
+| A5 | Summary section listing the builds and Ubuntu deploy steps | Added to the top of the rescoped doc |
+| A6 | `make run` was missing | Root cause: the file bridge refuses the literal filename `Makefile`, so every update landed in `Makefile.txt` while the original stayed active. Fixed at source via the device shell |
+| A7 | `make pipeline` build failure | `sqlite3.h: No such file or directory` — fixed with `libsqlite3-dev` in the build stage |
+| A8 | `./demo.sh: Permission denied` — sudo or fix permissions? | Neither sudo nor a workaround: `chmod +x` plus `git update-index --chmod=+x` so a fresh clone is executable |
+| A9 | Test on AWS via an in-image curl client, then externally from the desktop | `test-remote-in-image` and `verify-remote`; `deploy-ec2` runs both in that order |
+| A10 | Provide `EC2_KEY`; the key is not in the repo and the Makefile picks it up from elsewhere | See *Key handling* below |
+| A11 | Use `AWSPrimary.pem` as the primary key without ingesting the file | Path recorded in `deploy.env`; the file was never read, staged, or copied |
+| A12 | "Can't you add a package install, since you have SSH access to the node, to get Compose v2?" | `make bootstrap-ec2` plus `scripts/bootstrap-host.sh`. Arun drew the line himself: the key and the security group stay manual, package installation does not |
+| A14 | Switching to an Ubuntu instance; noted it demonstrates "any standalone host" better than AWS specifically | `DEPLOY_USER=ubuntu`. Prompted the rename in B14 — Ubuntu is also the only distro where `get.docker.com` supplies the engine and the Compose plugin together, so it is the cleanest bootstrap path |
+| A13 | Host is Amazon Linux, `EC2_USER=ec2-user`; asked whether packaging was Ubuntu-specific and to surface it in preflight | Answered: the **image** is host-distro agnostic (Debian inside, runs anywhere with Docker); only the host bootstrap is distro-aware. `deploy.env` set to `ec2-user`, preflight now reports distro/version/user |
+
+### [ADDED] Claude's own additions
+
+| # | Addition | Why it was not just scope creep |
+|---|---|---|
+| B1 | `AGORA_K` env wiring | Compose set `AGORA_K` and `main.go` never read it. `k` is the anonymity threshold, so this was a **silently wrong privacy posture that looked healthy** — the worst failure shape available |
+| B2 | `GET /healthz` echoing the live policy | A privacy setting observable only by reading the compose file is one nobody can audit. Also repointed the healthcheck at it — a deviation from A4's "keep compose as written", flagged at the time |
+| B3 | `demo.sh` asserts and exits non-zero | It printed the summary and always exited 0, so `make pipeline` could not go red. A pipeline that cannot fail is decoration |
+| B4 | `bash ./demo.sh` in the Makefile | A8's chmod fixes today; the exec bit is lost again on every bridge transfer, zip, or Windows checkout |
+| B5 | `preflight-ec2` | Without it the default failure is a completed 40 MB transfer that then dies on `docker: command not found` or Compose v1 rejecting `--wait` |
+| B6 | Bundling `demo.sh` + `jq` in the image (~1.5 MB) | A9 needs a client inside the container. Without `jq` the assertion step exits 2 — it would *look* like it ran while proving nothing |
+| B7 | `verify-remote` polls health then runs the client | The original `deploy-ec2` ended by printing a URL, which verifies nothing |
+| B8 | `HOST_PORT` / `PORT` unification | The Makefile used `PORT`, compose used `HOST_PORT`; changing the port moved the printed URL without moving the published port |
+| B9 | `package` depends on `test`, not `build`; `seed` has no prerequisite | Deliberate deviation from "each target builds on a previous target". The Dockerfile compiles in its own multi-stage build, so the local binary is not an input; and the container seeds itself on startup, so `seed` is a mid-demo reset, not a build step |
+| B10 | `pipeline-parity` | Exercises the anonymity descope seam through the **deployed artifact**, not just the unit suite. Only meaningful once B1 made `AGORA_K` real |
+| B11 | `up`, `down`, `coverage`, docker-aware `clean` | Ordinary ergonomics |
+| B12a | Bootstrap kept **out** of `deploy-ec2`'s prerequisites | A12 asked for the install, not for it to happen implicitly. Installing packages mutates someone else's machine, so it stays a step you choose to run. `preflight-ec2` points at it on failure instead |
+| B12b | Bootstrap handles the cases beyond "install docker" | Distro detection (Debian/Ubuntu via get.docker.com, RPM families via dnf); installing `curl` first because a minimal cloud image may lack it; **version-comparing** the Compose plugin against 2.17 rather than merely checking presence, since a distro-packaged v1 satisfies a presence check and then rejects `--wait`; creating the docker group when absent, which would otherwise abort the script under `set -e`; and skipping the group step entirely when running as root |
+| B13a | Package-manager detection rewritten | The Amazon Linux question surfaced a real bug Claude had shipped: the bootstrap mapped `amzn` to `dnf`, which is right for AL2023 and **wrong for Amazon Linux 2**, where docker lives in `amazon-linux-extras` and `dnf` does not exist. Now selected by what is present on the box (dnf → apt-get → yum) rather than by distro ID, since that mapping is precisely where AL2 breaks |
+| B13b | `PLATFORM` variable, defaulting to `linux/amd64` | `package-linux` had the platform hardcoded. `preflight-ec2` now compares the host's `uname -m` against it and prints the exact fix, because the symptom of a mismatch is `exec format error` — which reads like a corrupt transfer, not a platform problem |
+| B13c | Preflight reports distro, version and login user | A wrong `EC2_USER` presents as an auth failure rather than a configuration error, and the distro determines whether bootstrap can help at all. Both are now visible before anything is transferred |
+| B14 | Targets and variables generalised: `deploy-host`, `preflight-host`, `bootstrap-host`, `verify-host`, driven by `DEPLOY_HOST`/`DEPLOY_USER`/`DEPLOY_KEY` | Arun's observation that Ubuntu "doesn't have to be AWS" was right about the naming too — targets called `deploy-ec2` quietly contradict a claim of host portability. Originally shipped with `EC2_*` aliases for continuity; Arun removed them a turn later as unnecessary debt in a single-developer project, which was right — two names for one thing is a cost with no reader to pay it off |
+| A15 | "Remove all the alias targets — we are in dev mode and this is just excess debt" | All `*-ec2` targets, `verify-remote`, `test-remote` and the `EC2_*` variables deleted. **Removing them exposed a latent break**: `deploy-host` still declared `preflight-ec2` as a prerequisite, so the alias had been silently load-bearing. Caught by resolving the dependency graph rather than by the file parsing, which it did happily |
+| B12 | Two invariant tests | `TestInvariant_ThresholdIsReadOnlyInsideAnonymityFile` and `TestInvariant_ArbiterStoreExposesNoRawContext` turn two design invariants from intentions into CI failures |
+
+## Key handling — the requirement and the mechanism
+
+**[ASKED] The requirement, in Arun's words:** the key is not in the repo, the LLM never sees it, and the Makefile picks it up from elsewhere.
+
+**[ADDED] The mechanism Claude chose:**
+
+- `deploy.env` and `~/.agora/deploy.env`, pulled in with `-include` so both are optional, with precedence `Makefile < ~/.agora/deploy.env < ./deploy.env < environment < make VAR=…`.
+- `deploy.env.example` is the only one committed and contains no real values.
+- `.gitignore` extended to `deploy.env`, `*.pem`, `*.key`, `*.p12`, `id_rsa*`.
+- `SSH`/`SCP` variables so every remote call routes through one place; empty `EC2_KEY` collapses to plain `ssh`, preserving ssh-agent setups.
+- `-o StrictHostKeyChecking=accept-new` — trusts a first-seen host key but still refuses a *changed* one, which suits a fresh instance without disabling host verification.
+- `make check-key`, a guard rather than a convenience, run automatically before `preflight-ec2` and `deploy-ec2`. It **never reads the key**, only `stat`s it, and checks three things: the file exists, its mode is 400 or 600, and **it is not inside the repository**.
+
+**[ADDED] Why the in-repo check exists.** A key in the working tree is one `git add .` from becoming a git object, and git objects are hard to un-publish. The `.gitignore` entries are a second line of defence only — a gitignore rule helps only if the filename matches a pattern someone thought to write down.
+
+**[ADDED] Why the path went in `deploy.env` rather than the Makefile.** Arun offered either. The Makefile ships to Anthropic as part of the submission, so a hardcoded `/Users/arunuke/Documents/Keys/...` would leak a local directory layout and break for anyone else who clones it. `deploy.env` gives the same zero-flag convenience and stays on the machine.
+
+## Mistakes made and corrected
+
+- **Validated a dependency on the wrong machine.** Claude proved `sqlite-vec` worked *in a sandbox that had `libsqlite3-dev` installed*, then wrote a Dockerfile for an image that does not, and reported the CGO risk as "mitigated". A7 was the consequence. Corrected by reproducing the failure deliberately — hiding `/usr/include/sqlite3.h`, clearing the build cache, and matching Arun's exact error — before applying the fix.
+- **Trusted a tool's success message over the file on disk.** The file bridge silently no-op'd several writes while reporting success, including an early version of this very section. Now every commit is followed by reading the file back on the device.
+- **Handed back a manual step instead of doing the work.** For several turns Claude asked Arun to `mv Makefile.txt Makefile` while holding a shell on his machine that could do it directly. A6 was the cost of that.
+
+
+---
+
+# Refinement — 2026-09-12
+
+A pass whose only goal was to remove, not add. Recorded separately because the
+growth being undone was Claude's: each new problem got a new target instead of
+a question about whether an existing one should absorb it.
+
+## Target consolidation: 30 -> 20 visible
+
+| Removed | Reachable instead by | Why it existed |
+|---|---|---|
+| `cloud-parity` | `AGORA_K=1 make test` | the variable already worked; the target was a synonym |
+| `pipeline-parity` | `AGORA_K=1 make pipeline` | same. **Removing it improved `pipeline`**: the policy assertion it carried is now unconditional, so every pipeline run verifies the container is on the k it was asked for |
+| `package-linux` | `make package PLATFORM=linux/amd64` | `deploy-host` set PLATFORM anyway |
+| `test-remote-in-image` | `make test-in-image DEPLOY_HOST=<ip>` | identical client and assertion; only the location differed |
+| `seed` | one curl to `/v1/demo/reset`, now inline in `pipeline` | a wrapper around a single request |
+| `coverage` | `go tool cover -html=coverage.out` after `make test` | a wrapper around one command |
+| `push` | — deleted outright | nothing depended on it, it was never run, and the deploy path streams over SSH and needs no registry. Took `DOCKERHUB_REPO` with it |
+
+`check-key` and `check-secret` merged behind one `check`; `fmt`, `vet` and the
+two check-* targets marked `@internal` so they stay callable but leave the help
+output. Help now filters on that marker.
+
+**Found while doing it:** `README.md` documented `make docker-run`, which has
+never existed — the target is `up`. Added a loop that resolves every `make`
+command mentioned in the README against the real target list, so a stale
+instruction fails loudly rather than wasting a reader's first five minutes.
+
+## Family renamed
+
+`ana/ben/cruz/dee/eli` -> `arya/bran/catelyn/daenerys/eddard`. Checked every new
+name against `vocab.MatchTerms` BEFORE renaming, because a canary that collided
+with the vocabulary has bitten this seed once already ("Bulgarian claymation").
+All five are clean.
+
+The anonymity arithmetic is unchanged and was verified after the rename: public
+constraints remain exactly *comedies* (Bran + Catelyn) and *something short*
+(Bran + Eddard), with Arya holding the singleton horror veto. Suite green,
+walkthrough 11/11.
+
+
+## Second provider — two-tier LLM path
+
+**[ASKED]** "If an Anthropic key is available, use it. If not, use a local path."
+Arriving after *"is there a way to skip the API key and use the web URL
+directly?"* — answered no: driving claude.ai programmatically means replaying
+session cookies against a browser interface, which breaks Anthropic's terms and
+is technically fragile. Declined rather than built, and it would be a strange
+thing to submit *to Anthropic*.
+
+**[ADDED]** One `Compat` client rather than one per vendor. Ollama, Groq,
+OpenRouter, Together and OpenAI all expose `/v1/chat/completions`, so a single
+~180-line implementation covers them, switched by `AGORA_LLM_BASE`. This is
+what finally makes "swappable providers" a demonstration instead of an
+interface with one implementation.
+
+**[ADDED]** Zero-config local detection: with nothing set, the binary probes
+`:11434` for 400ms and, if Ollama answers, asks `/v1/models` which model it has
+rather than guessing. Local model names are user-chosen, so a guess is never
+right.
+
+**[ADDED]** Prompts are shared with the Anthropic client via `promptFor()`. The
+Loop B prompt carries the isolation instructions; a second copy would be a
+second place for them to drift out of sync with the reconciler.
+
+**[ADDED]** `extractJSONObject` salvages the outermost `{...}` from chatty
+output, which small local models produce far more often than large ones. The
+parse must still succeed — a failure descends a tier exactly as before, so the
+concession is to model verbosity, not to the validation rule.
+
+Verified across all four selection states with a stand-in Ollama: auto-detect,
+Anthropic-wins-over-local, explicit base URL with key, and nothing configured.
+
+
+## Provider precedence inverted — local first
+
+**[ASKED]** "Always use Ollama locally; only use Anthropic on AWS." Local builds
+are the MacBook, remote builds are Ubuntu.
+
+**[ADDED]** Implemented as capability detection rather than per-host config:
+local model if one answers, otherwise the key. A laptop with Ollama running
+spends nothing; a server without it falls through to Anthropic. No machine
+needs a profile, and the deployed box needs no change at all.
+
+**[ADDED]** `AGORA_LLM_PREFER=anthropic` escape hatch. Without it there would be
+no way to exercise the paid path from the laptop, which is exactly what you want
+to do once — before deploying — to confirm the key and model work.
+
+**[ADDED]** Caught a second leak the first fix would have missed: `make up` and
+`make pipeline` run the app INSIDE a container, where `localhost` is the
+container, so host-local Ollama is invisible and the run would have fallen
+through to the key. Both now detect a host model and point the container at
+`host.docker.internal`. Detection happens inside the recipe rather than at
+parse time, so unrelated targets do not pay a probe on every `make`.
+
+Verified across four shapes: key+Ollama (Ollama wins, and says the key is
+present but unused), forced anthropic, key without Ollama (EC2 shape), and
+neither.
+
+
+**[ASKED]** `AGORA_LLM_PREFER` passable to `make pipeline`: bare run uses local,
+adding the option uses Anthropic.
+
+**[ADDED]** Both container launchers share one `COMPOSE_UP` definition, so `up`
+and `pipeline` cannot drift apart on provider selection. When
+`AGORA_LLM_PREFER=anthropic` the key is loaded from the secrets file (still never
+a make variable) and the run **fails loudly if no key is configured** —
+silently falling back to the deterministic extractor would make the one run you
+care about worthless.
+
+**[ADDED]** `pipeline` now asserts the live provider matches what was requested,
+mirroring the existing `k` assertion. Both are checked through `/healthz`, so
+the run verifies what the container is actually doing rather than what the flags
+implied it would do.

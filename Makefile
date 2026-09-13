@@ -27,12 +27,30 @@ DEPLOY_KEY   ?=
 PLATFORM     ?= linux/amd64
 HOST_PORT    ?= 8080
 AGORA_K      ?= 2
-# Provider preference for containerised runs. Unset (the default) prefers a
-# local model and spends nothing; `anthropic` forces the paid path, which is
-# what you want once before deploying.
-#   make pipeline                            -> local Ollama if present
-#   make pipeline AGORA_LLM_PREFER=anthropic -> Anthropic, billed
+# Provider for containerised runs. The binary walks a chain — local model, then
+# ANTHROPIC_API_KEY, then the deterministic extractor — and these targets decide
+# what the container is given.
+#
+# LOCAL TARGETS HAND IT NEITHER. No model, no key, so the chain lands on the
+# simulated extractor: nothing to download, nothing to bill, seconds not
+# minutes. That is a property of the targets, not a flag you must remember, and
+# it holds even if your shell happens to export ANTHROPIC_API_KEY.
+#
+# The DEPLOYED host is where the chain earns its keep: it has a key and no
+# Ollama, so the same image lands on Anthropic without being told to.
+#   make pipeline                            -> simulated (deterministic)
+#   make pipeline AGORA_LLM_PREFER=ollama    -> local Ollama, needs `make ollama-setup`
+#   make pipeline AGORA_LLM_PREFER=anthropic -> Anthropic, BILLED
 AGORA_LLM_PREFER ?=
+# Optional. Empty means "ask the provider what it has" (see EnsureModel).
+AGORA_LLM_MODEL  ?=
+# Optional override for the OpenAI-compatible endpoint (Groq, OpenRouter, a
+# second local runtime). Setting it selects that provider on its own.
+AGORA_LLM_BASE   ?=
+# Model pulled by `make ollama-setup`. 3B is the smallest size that reliably
+# returns parseable JSON for the tier-1 extraction prompts.
+OLLAMA_MODEL     ?= llama3.2:3b
+OLLAMA_LOG       ?= $(HOME)/.agora/ollama.log
 COVERAGE_MIN ?= 80
 COVER_OUT    := coverage.out
 
@@ -43,6 +61,9 @@ COVER_OUT    := coverage.out
 export HOST_PORT
 export AGORA_K
 export IMAGE_NAME
+export AGORA_LLM_PREFER
+export AGORA_LLM_MODEL
+export AGORA_LLM_BASE
 
 # sqlite-vec is a loadable extension, so CGO is required for local builds.
 export CGO_ENABLED = 1
@@ -135,30 +156,72 @@ package: test ## Build the image. Cross-build with: make package PLATFORM=linux/
 
 ## --- Pipeline & End-to-End ---
 
-## COMPOSE_UP starts the container with the right provider.
+## COMPOSE_UP starts the container with the provider that was ASKED FOR, and
+## refuses to start one that cannot work.
 ##
-## Default: prefer a model on the HOST. A container's localhost is the
-## container, so a host model is only reachable via host.docker.internal.
-## AGORA_LLM_PREFER=anthropic instead loads the key from the secrets file (never
-## a make variable) and fails loudly if it is missing — silently running the
-## deterministic extractor while you believe you are testing Claude would make
-## the run worthless in the one case it exists for.
+## The refusal is the point. A completion that fails descends a tier by design,
+## so a misconfigured provider does not crash — it produces a full, green,
+## entirely meaningless run in which every answer came from the deterministic
+## extractor. Both failure modes below were observed in exactly that way:
+## Ollama bound to 127.0.0.1 (unreachable from a container) and an empty model
+## name (rejected with "model is required").
 define COMPOSE_UP
-	if [ "$(AGORA_LLM_PREFER)" = "anthropic" ]; then \
-	  $(LOAD_SECRETS) \
-	  if [ -z "$${ANTHROPIC_API_KEY:-}" ]; then \
-	    echo "  FAIL: AGORA_LLM_PREFER=anthropic but no ANTHROPIC_API_KEY."; \
-	    echo "        See: make check-secret"; exit 1; fi; \
-	  echo "  provider: anthropic (BILLED) — AGORA_LLM_PREFER=anthropic"; \
-	  AGORA_LLM_PREFER=anthropic docker compose up -d --wait; \
-	else \
-	  base="$(AGORA_LLM_BASE)"; \
-	  if [ -z "$$base" ] && curl -sf --max-time 1 http://localhost:11434/v1/models >/dev/null 2>&1; then \
-	    base=http://host.docker.internal:11434/v1; \
+	case "$(strip $(AGORA_LLM_PREFER))" in \
+	  anthropic) \
+	    $(LOAD_SECRETS) \
+	    if [ -z "$${ANTHROPIC_API_KEY:-}" ]; then \
+	      echo "  FAIL: AGORA_LLM_PREFER=anthropic but no ANTHROPIC_API_KEY."; \
+	      echo "        See: make check-secret"; exit 1; fi; \
+	    echo "  provider: anthropic (BILLED)"; \
+	    docker compose up -d --wait ;; \
+	  ollama|local) \
+	    if ! curl -sf --max-time 2 http://localhost:11434/v1/models >/dev/null 2>&1; then \
+	      echo "  FAIL: AGORA_LLM_PREFER=$(AGORA_LLM_PREFER) but nothing is answering"; \
+	      echo "        on http://localhost:11434.  Fix: make ollama-setup"; exit 1; fi; \
 	    echo "  provider: local Ollama via host.docker.internal (no tokens spent)"; \
-	  fi; \
-	  AGORA_LLM_BASE="$$base" docker compose up -d --wait; \
-	fi
+	    AGORA_LLM_BASE="$${AGORA_LLM_BASE:-http://host.docker.internal:11434/v1}" \
+	      docker compose up -d --wait ;; \
+	  "") \
+	    echo "  provider: deterministic (simulated) — no model and no key given"; \
+	    echo "            to the container, so the chain ends here. Free and fast."; \
+	    ANTHROPIC_API_KEY= AGORA_LLM_BASE= AGORA_LLM_PREFER= docker compose up -d --wait ;; \
+	  simulated|deterministic|none|off) \
+	    echo "  provider: deterministic (simulated), by request"; \
+	    ANTHROPIC_API_KEY= AGORA_LLM_BASE= AGORA_LLM_PREFER=simulated docker compose up -d --wait ;; \
+	  *) \
+	    echo "  FAIL: AGORA_LLM_PREFER=$(AGORA_LLM_PREFER) is not one of:"; \
+	    echo "        ollama, anthropic, simulated (or empty for the default)."; exit 1 ;; \
+	esac
+endef
+
+## ANTHROPIC_API_KEY= in the default branch is deliberate and load-bearing. The
+## binary's chain reaches for a key whenever it finds one, so a developer whose
+## shell exports ANTHROPIC_API_KEY would otherwise have `make pipeline` quietly
+## start billing them. The local default must be free on every machine, not just
+## on ones with a clean environment.
+
+## CHECK_PROVIDER asserts that the container is running the provider that was
+## asked for, from OUTSIDE the process. /healthz reports what was CONFIGURED,
+## which is necessary but not sufficient — for a local model the container must
+## also be able to reach the host, so that path is exercised for real.
+define CHECK_PROVIDER
+	want="$(strip $(AGORA_LLM_PREFER))"; [ -n "$$want" ] || want=deterministic; \
+	case "$$want" in local) want=ollama ;; esac; \
+	got=$$(curl -sf http://localhost:$(HOST_PORT)/healthz | tr -d ' \n' \
+	       | sed -n 's/.*"provider":"\([a-z-]*\)".*/\1/p'); \
+	if [ "$$got" != "$$want" ]; then \
+	  echo "  FAIL: asked for $$want, container is running $$got."; \
+	  echo "        A run that silently used a different provider would prove"; \
+	  echo "        nothing about the path you were testing."; exit 1; fi; \
+	echo "  provider $$got, verified via /healthz"; \
+	if [ "$$want" = "ollama" ]; then \
+	  docker exec agora curl -sf --max-time 5 \
+	    http://host.docker.internal:11434/v1/models >/dev/null 2>&1 \
+	    && echo "  container can reach the model host, verified from inside" \
+	    || { echo "  FAIL: the container cannot reach Ollama at"; \
+	         echo "        host.docker.internal:11434. It is almost certainly bound"; \
+	         echo "        to 127.0.0.1, which a container cannot route to."; \
+	         echo "        Fix: make ollama-down && make ollama-setup"; exit 1; }; fi
 endef
 
 .PHONY: up
@@ -191,16 +254,7 @@ pipeline: package ## Full pipeline: start container, seed, run external curl cli
 		  && echo "  live policy k=$(AGORA_K), verified via /healthz" \
 		  || { echo "  FAIL: container is not running k=$(AGORA_K)"; exit 1; } && \
 		echo "Confirming the provider is the one we asked for..." && \
-		if [ "$(AGORA_LLM_PREFER)" = "anthropic" ]; then \
-		  curl -sf http://localhost:$(HOST_PORT)/healthz | grep -q '"provider": "anthropic"' \
-		    && echo "  provider anthropic, verified via /healthz" \
-		    || { echo "  FAIL: asked for anthropic, container is running something else."; \
-		         echo "        A run that silently used the deterministic extractor would"; \
-		         echo "        prove nothing about the path you were testing."; exit 1; }; \
-		else \
-		  curl -sf http://localhost:$(HOST_PORT)/healthz \
-		    | tr -d ' \n' | grep -o '"provider":"[a-z-]*"' | sed 's/^/  /'; \
-		fi && \
+		{ $(CHECK_PROVIDER) } && \
 		curl -sf -X POST http://localhost:$(HOST_PORT)/v1/demo/reset >/dev/null && \
 		echo "Running external client walkthrough (demo.sh)..." && \
 		bash ./demo.sh http://localhost:$(HOST_PORT)
@@ -221,9 +275,75 @@ test-in-image: ## Run the bundled client inside the container. Remote: make test
 	else docker exec agora bash /app/demo.sh http://localhost:8080; fi
 
 .PHONY: run
-run: build ## Run locally without Docker on $(HOST_PORT)
+run: build ## Run locally without Docker on $(HOST_PORT) (simulated provider)
 	@mkdir -p data
-	@$(LOAD_SECRETS) ./$(BIN) --db ./data/agora.db --seed ./seed --addr :$(HOST_PORT) --k $(AGORA_K)
+	@# Secrets are loaded ONLY when the paid path is asked for by name. Sourcing
+	@# them unconditionally would put a key in the environment, and the chain
+	@# would then pick Anthropic for anyone who has ever run make set-remote-secret
+	@# — turning `make run` into a billed command on a developer's own box.
+	@if [ "$(strip $(AGORA_LLM_PREFER))" = "anthropic" ]; then \
+	  $(LOAD_SECRETS) \
+	  if [ -z "$${ANTHROPIC_API_KEY:-}" ]; then \
+	    echo "FAIL: AGORA_LLM_PREFER=anthropic but no ANTHROPIC_API_KEY. See: make check-secret"; exit 1; fi; \
+	  echo "provider: anthropic (BILLED)"; \
+	  ./$(BIN) --db ./data/agora.db --seed ./seed --addr :$(HOST_PORT) --k $(AGORA_K); \
+	else \
+	  ANTHROPIC_API_KEY= ./$(BIN) --db ./data/agora.db --seed ./seed --addr :$(HOST_PORT) --k $(AGORA_K); \
+	fi
+
+## --- Local model (developer box only) ---
+
+## Ollama is a DEVELOPER-BOX concern, never a deploy-time one: the deployed
+## host runs Anthropic or the simulated extractor. It therefore lives in its own
+## targets that nothing else depends on, so `make pipeline` and `make deploy-host`
+## never pull a 2GB model on someone's behalf.
+##
+## OLLAMA_HOST=0.0.0.0 is the load-bearing detail. Ollama binds 127.0.0.1 by
+## default, and a container cannot route to the host's loopback — so the default
+## bind produces a container that reports provider=ollama and silently answers
+## every request from the deterministic extractor. NOTE: this listens on every
+## interface, so on an untrusted network bind it to the docker bridge instead.
+.PHONY: ollama-setup
+ollama-setup: ## Install Ollama + pull $(OLLAMA_MODEL), reachable from containers
+	@if ! command -v ollama >/dev/null 2>&1; then \
+	  if ! command -v brew >/dev/null 2>&1; then \
+	    echo "FAIL: ollama is not installed and neither is Homebrew."; \
+	    echo "      Install it from https://ollama.com/download, then re-run this."; exit 1; fi; \
+	  echo "Installing ollama via Homebrew..."; brew install ollama; \
+	@# NOT `ollama --version`: with no server running it prints "could not
+	@# connect to a running Ollama instance", which reads like a failure here.
+	else echo "  ollama: installed at $$(command -v ollama)"; fi
+	@if curl -sf --max-time 2 http://localhost:11434/v1/models >/dev/null 2>&1; then \
+	  if lsof -nP -iTCP:11434 -sTCP:LISTEN 2>/dev/null | grep -q '127\.0\.0\.1:11434'; then \
+	    echo "FAIL: a server is running but bound to 127.0.0.1, which no container"; \
+	    echo "      can reach. Restart it: make ollama-down && make ollama-setup"; exit 1; fi; \
+	  echo "  server: already running and reachable from containers"; \
+	else \
+	  echo "Starting ollama on 0.0.0.0:11434 (log: $(OLLAMA_LOG))..."; \
+	  mkdir -p $(dir $(OLLAMA_LOG)); \
+	  OLLAMA_HOST=0.0.0.0:11434 nohup ollama serve >> $(OLLAMA_LOG) 2>&1 & \
+	  for i in $$(seq 1 20); do \
+	    curl -sf --max-time 1 http://localhost:11434/v1/models >/dev/null 2>&1 && break; sleep 1; done; \
+	  curl -sf --max-time 2 http://localhost:11434/v1/models >/dev/null 2>&1 \
+	    || { echo "FAIL: server did not come up. See $(OLLAMA_LOG)"; exit 1; }; \
+	  echo "  server: started"; fi
+	@if ollama list 2>/dev/null | grep -q '^$(OLLAMA_MODEL)[[:space:]]'; then \
+	  echo "  model:  $(OLLAMA_MODEL) already present"; \
+	else echo "Pulling $(OLLAMA_MODEL) (a few GB, one time)..."; ollama pull $(OLLAMA_MODEL); fi
+	@echo
+	@echo "Ready. Run the pipeline against it with:"
+	@echo "  make pipeline AGORA_LLM_PREFER=ollama"
+
+.PHONY: ollama-down
+ollama-down: ## Stop the local Ollama server (leaves the downloaded model in place)
+	@pkill -f "ollama serve" 2>/dev/null && echo "  stopped" || echo "  not running"
+
+## A convenience alias, so the local-model run is one word rather than a flag
+## nobody remembers. It is the ONLY place a default model name is applied: the
+## binary otherwise asks the provider what it has.
+.PHONY: pipeline-local
+pipeline-local: ## Full pipeline against the local Ollama (requires: make ollama-setup)
+	@$(MAKE) --no-print-directory pipeline AGORA_LLM_PREFER=ollama AGORA_LLM_MODEL=$(OLLAMA_MODEL)
 
 ## --- Configuration checks ---
 
@@ -358,6 +478,10 @@ deploy-host: preflight-host package-linux ## Deploy to any SSH-reachable host an
 	@echo "Copying docker-compose.yml..."
 	$(SCP) docker-compose.yml $(DEPLOY_USER)@$(DEPLOY_HOST):~/docker-compose.yml
 	@echo "Starting container on remote host..."
+	@# ~/agora.env carries the key (written by make set-remote-secret). The host
+	@# ships no Ollama, so rung 1 of the chain misses in ~400ms and the key
+	@# selects Anthropic. With no key the host runs the simulated extractor
+	@# rather than failing to start — degraded, not down.
 	$(SSH) $(DEPLOY_USER)@$(DEPLOY_HOST) \
 	  'set -a; [ -f ~/agora.env ] && . ~/agora.env; set +a; \
 	   HOST_PORT=$(HOST_PORT) AGORA_K=$(AGORA_K) docker compose up -d --wait'
@@ -442,8 +566,30 @@ diagnose-host: ## Diagnose why $(DEPLOY_HOST):$(HOST_PORT) is unreachable
 
 ## --- Clean ---
 
+## Deliberately NOT part of `clean`, and deliberately not a prerequisite of
+## anything. `clean` removes what this repository built; this removes what it
+## asked the internet for — several GB of model weights and a Homebrew package
+## that other projects on this machine may also be using. Destroying either as a
+## side effect of "clean the build" would be a genuinely unwelcome surprise.
+.PHONY: clean-external
+clean-external: ## Remove externally sourced artifacts: Ollama, its models, the image
+	@echo "Removing externally sourced artifacts:"
+	@$(MAKE) --no-print-directory ollama-down
+	@if command -v ollama >/dev/null 2>&1; then \
+	  echo "  removing downloaded models..."; \
+	  ollama list 2>/dev/null | awk 'NR>1 {print $$1}' | while read -r m; do \
+	    [ -n "$$m" ] && ollama rm "$$m" >/dev/null 2>&1 && echo "    removed $$m"; done; \
+	  rm -rf $(HOME)/.ollama/models 2>/dev/null || true; \
+	  if command -v brew >/dev/null 2>&1 && brew list ollama >/dev/null 2>&1; then \
+	    echo "  uninstalling ollama (Homebrew)..."; brew uninstall ollama >/dev/null && echo "    done"; fi; \
+	else echo "  ollama: not installed"; fi
+	@rm -f $(OLLAMA_LOG)
+	@-docker compose down -v 2>/dev/null
+	@-docker rmi $(IMAGE_NAME) 2>/dev/null
+	@echo "Done. Run 'make ollama-setup' to reinstall everything above."
+
 .PHONY: clean
-clean: ## Clean local binaries, data, coverage and docker artifacts
+clean: ## Clean local binaries, data, coverage and docker artifacts (not $(OLLAMA_MODEL) — see clean-external)
 	rm -rf bin data $(COVER_OUT) coverage.html
 	-docker compose down -v 2>/dev/null
 	-docker rmi $(IMAGE_NAME) 2>/dev/null

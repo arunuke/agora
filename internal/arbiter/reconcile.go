@@ -158,6 +158,10 @@ func matches(t store.Title, d vocab.Dim, value string) bool {
 		return t.Maturity == value
 	case vocab.DimAvailability:
 		return t.Availability == value
+	case vocab.DimOccasion:
+		// An untagged title matches no occasion. Treating "" as a wildcard would
+		// make "something christmassy" rank the whole catalogue.
+		return t.Occasion != "" && t.Occasion == value
 	case vocab.DimRuntimeMax:
 		n, err := strconv.Atoi(value)
 		if err != nil {

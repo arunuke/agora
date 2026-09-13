@@ -47,7 +47,7 @@ func TestDurability_ResumeDoesNotReconsultAnsweredMembers(t *testing.T) {
 	arb := arbiter.New(a.Store, rec, llm.Deterministic{}, a.Clock, a.Switch,
 		arbiter.Config{Policy: arbiter.FamilyDefault(), Deadline: 500 * time.Millisecond})
 
-	res, err := arb.Convene(ctx(), a.GroupID, "ben")
+	res, err := arb.Convene(ctx(), a.GroupID, "bran")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestDurability_ResumeDoesNotReconsultAnsweredMembers(t *testing.T) {
 
 func TestDurability_CheckpointsProgressThroughStates(t *testing.T) {
 	a := newApp(t, 2)
-	res, err := a.Arbiter.Convene(ctx(), a.GroupID, "ben")
+	res, err := a.Arbiter.Convene(ctx(), a.GroupID, "bran")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,10 +147,10 @@ func TestDurability_ScheduledConveneFiresOnSimulatedClock(t *testing.T) {
 
 func TestDurability_NotificationsPiggybackTheNextResponse(t *testing.T) {
 	a := newApp(t, 2)
-	if _, err := a.Arbiter.Convene(ctx(), a.GroupID, "ben"); err != nil {
+	if _, err := a.Arbiter.Convene(ctx(), a.GroupID, "bran"); err != nil {
 		t.Fatal(err)
 	}
-	notes, err := a.Store.PopNotifications("eli")
+	notes, err := a.Store.PopNotifications("eddard")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestDurability_NotificationsPiggybackTheNextResponse(t *testing.T) {
 		t.Fatal("a completed convene must leave a notification for each member")
 	}
 	// Delivered exactly once.
-	again, err := a.Store.PopNotifications("eli")
+	again, err := a.Store.PopNotifications("eddard")
 	if err != nil {
 		t.Fatal(err)
 	}

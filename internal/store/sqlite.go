@@ -34,7 +34,11 @@ type Title struct {
 	Maturity     string `json:"maturity"`
 	Tone         string `json:"tone"`
 	Availability string `json:"availability"`
-	Synopsis     string `json:"synopsis"`
+	// Occasion is empty for the great majority of titles: most films are not
+	// seasonal, and an empty value matches no occasion constraint rather than
+	// matching all of them.
+	Occasion string `json:"occasion"`
+	Synopsis string `json:"synopsis"`
 }
 
 type Event struct {
@@ -56,11 +60,11 @@ type Convene struct {
 }
 
 type Notification struct {
-	ID       int64           `json:"-"`
-	MemberID string          `json:"-"`
-	Type     string          `json:"type"`
-	Message  string          `json:"message"`
-	Data     map[string]any  `json:"data,omitempty"`
+	ID       int64          `json:"-"`
+	MemberID string         `json:"-"`
+	Type     string         `json:"type"`
+	Message  string         `json:"message"`
+	Data     map[string]any `json:"data,omitempty"`
 }
 
 type Store struct {
@@ -94,9 +98,9 @@ func Open(path string) (*Store, error) {
 	return s, nil
 }
 
-func (s *Store) Close() error      { return s.db.Close() }
-func (s *Store) DB() *sql.DB       { return s.db }
-func (s *Store) VectorsOK() bool   { return s.vecOK }
+func (s *Store) Close() error       { return s.db.Close() }
+func (s *Store) DB() *sql.DB        { return s.db }
+func (s *Store) VectorsOK() bool    { return s.vecOK }
 func (s *Store) VectorNote() string { return s.vecNote }
 
 func (s *Store) migrate() error {
@@ -108,7 +112,8 @@ func (s *Store) migrate() error {
 			derived text not null default '{}', updated_at text not null)`,
 		`create table if not exists titles(
 			title_id text primary key, title text, genre text, era text, runtime integer,
-			language text, maturity text, tone text, availability text, synopsis text)`,
+			language text, maturity text, tone text, availability text,
+			occasion text not null default '', synopsis text)`,
 		`create table if not exists events(
 			event_id text primary key, title_id text, label text,
 			window_start text, window_end text)`,
@@ -167,7 +172,7 @@ func (s *Store) Member(id string) (Member, error) {
 
 func (s *Store) Titles() ([]Title, error) {
 	rows, err := s.db.Query(`select title_id,title,genre,era,runtime,language,maturity,
-		tone,availability,synopsis from titles order by title_id`)
+		tone,availability,occasion,synopsis from titles order by title_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +181,7 @@ func (s *Store) Titles() ([]Title, error) {
 	for rows.Next() {
 		var t Title
 		if err := rows.Scan(&t.TitleID, &t.Title, &t.Genre, &t.Era, &t.Runtime, &t.Language,
-			&t.Maturity, &t.Tone, &t.Availability, &t.Synopsis); err != nil {
+			&t.Maturity, &t.Tone, &t.Availability, &t.Occasion, &t.Synopsis); err != nil {
 			return nil, err
 		}
 		out = append(out, t)

@@ -39,9 +39,13 @@ func New(st *store.Store, client llm.LLMClient, emb llm.Embedder) *Agent {
 }
 
 type MessageResult struct {
-	Reply    string
-	Tier     int
-	Degraded bool
+	Reply string
+	Tier  int
+	// Suggestions is what the SYSTEM computed from the catalogue, independent of
+	// how the model chose to word its reply. Exposed so callers (and tests) can
+	// assert on behaviour rather than on prose.
+	Suggestions []string
+	Degraded    bool
 }
 
 // HandleMessage is a chat turn. It runs entirely inside one member's private
@@ -51,6 +55,27 @@ func (a *Agent) HandleMessage(ctx context.Context, memberID, text string) (Messa
 	if _, _, err := scope.Load(); err != nil {
 		return MessageResult{}, err
 	}
+	// REFUSAL BEFORE ANYTHING ELSE. A request that reaches for another member's
+	// context is declined here, in code, before the text is stored, before it is
+	// extracted, and before any model sees it.
+	//
+	// The chat prompt already instructs the model to decline. That instruction
+	// is worth keeping and worth nothing on its own: a 3B local model answered
+	// this exact probe by inventing preferences and attributing them to a member
+	// by name. Isolation itself never depended on the model — Loop A can only
+	// load its own scope — but the REPLY did, and a confabulated answer reads
+	// to a user as a leak whether or not anything leaked.
+	//
+	// Refusing before AppendRaw also keeps the probe out of the asker's profile,
+	// where another member's name has no business being.
+	if a.asksAboutAnotherMember(memberID, text) {
+		name := "there"
+		if m, err := a.st.Member(memberID); err == nil && m.DisplayName != "" {
+			name = m.DisplayName
+		}
+		return MessageResult{Reply: refusalFor(name), Tier: TierKeyword}, nil
+	}
+
 	if strings.TrimSpace(text) != "" {
 		if err := scope.AppendRaw(text); err != nil {
 			return MessageResult{}, err
@@ -74,9 +99,96 @@ func (a *Agent) HandleMessage(ctx context.Context, memberID, text string) (Messa
 	resp, err := a.llm.Complete(ctx, llm.Request{Task: llm.TaskChat, Input: text, Payload: payload})
 	if err != nil {
 		// Degraded chat: a template, never a fabrication and never a hang.
-		return MessageResult{Reply: templateReply(ack, titles), Tier: tier, Degraded: true}, nil
+		return MessageResult{Reply: templateReply(ack, titles), Tier: tier,
+			Suggestions: titles, Degraded: true}, nil
 	}
-	return MessageResult{Reply: resp.Text, Tier: tier, Degraded: degraded}, nil
+	return MessageResult{Reply: resp.Text, Tier: tier, Suggestions: titles, Degraded: degraded}, nil
+}
+
+// refusalFor is the one sentence this system will not let a model improvise.
+func refusalFor(name string) string {
+	return fmt.Sprintf("I'm sorry, %s. I'm afraid I can't do that. "+
+		"I only hold your own preferences, never anyone else's — not to read out, "+
+		"not to summarise, and not to copy onto you. Tell me what YOU feel like "+
+		"watching and I'll work from that.", name)
+}
+
+// groupProbes are requests that reach for other members without naming one.
+// Deliberately narrow: each phrase asks ABOUT members, which is why none of
+// them appears in an ordinary statement of taste. "Something everyone can
+// watch" is a preference and must keep working.
+var groupProbes = []string{
+	"every member", "each member", "all members", "member by member",
+	"every user", "all users", "other members", "the other member",
+	"everyone else", "anyone else", "someone else", "somebody else",
+	"each person", "everybody else",
+	"their preferences", "their profile", "his preferences", "her preferences",
+	"raw profile", "profile table", "stored preferences", "everyone's preferences",
+	"which member", "who wanted", "who else", "who disagreed", "who vetoed",
+}
+
+// asksAboutAnotherMember reports whether a message reaches for someone else's
+// context, either by naming a member or by asking about members generally.
+//
+// Names are matched on word boundaries, not substrings: a member called Cara
+// must not make "caramel" a refusal, and the whole point of this check is that
+// it fires on the request rather than on the vocabulary.
+func (a *Agent) asksAboutAnotherMember(memberID, text string) bool {
+	low := strings.ToLower(text)
+	for _, p := range groupProbes {
+		if strings.Contains(low, p) {
+			return true
+		}
+	}
+
+	me, err := a.st.Member(memberID)
+	if err != nil {
+		return false
+	}
+	others, err := a.st.Members(me.GroupID)
+	if err != nil {
+		return false
+	}
+	for _, m := range others {
+		if m.MemberID == memberID {
+			continue
+		}
+		for _, token := range []string{m.DisplayName, m.MemberID} {
+			token = strings.ToLower(strings.TrimSpace(token))
+			if token == "" {
+				continue
+			}
+			if wordInText(low, token) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// wordInText is a word-boundary containment check over already-lowered text.
+func wordInText(text, word string) bool {
+	for i := 0; ; {
+		j := strings.Index(text[i:], word)
+		if j < 0 {
+			return false
+		}
+		start := i + j
+		end := start + len(word)
+		beforeOK := start == 0 || !isWordByte(text[start-1])
+		afterOK := end == len(text) || !isWordByte(text[end])
+		if beforeOK && afterOK {
+			return true
+		}
+		i = start + 1
+		if i >= len(text) {
+			return false
+		}
+	}
+}
+
+func isWordByte(b byte) bool {
+	return b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
 // Consult implements arbiter.MemberAgent. It returns a SEALED SIGNAL: derived,
