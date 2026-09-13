@@ -308,4 +308,4 @@ Every removal is a deferral. Each has a named successor and an existing seam.
 | Authentication | Solved problem | JWT on REST, mTLS between services |
 | Web UI | See above | Slack bot / web front end over the existing endpoints |
 
-See `Requirements_Rescoped.md`, `Design_Rescoped.md`, `Implementation_Rescoped.md` for the full reasoning, and `ClaudeFeedback.md` for the decision log.
+See [docs/Rescoped.md](docs/Rescoped.md) for the full reasoning — requirements, design, implementation and build/deploy, each rescoped against the original in [docs/](docs/) — and [docs/ClaudeFeedback.md](docs/ClaudeFeedback.md) for the decision log.

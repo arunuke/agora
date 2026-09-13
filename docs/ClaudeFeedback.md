@@ -2,6 +2,10 @@
 
 Historical record of collaboration with Claude on Agora: where we started, what changed, and why.
 
+*A note on filenames.* The four `*_Rescoped.md` documents referenced throughout this log were
+later consolidated into a single [Rescoped.md](Rescoped.md), one section each. Entries below keep
+the names they were written with — a record that renames itself is no longer a record.
+
 ---
 
 ## Session 1 — 2026-09-08 — Requirements validation
