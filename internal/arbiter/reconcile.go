@@ -132,7 +132,17 @@ func ReconcileWith(signals []Signal, titles []store.Title, p AnonymityPolicy, re
 	//
 	// In the single-signal case — a member's own recommendations, scored under
 	// cloud parity — everything is public and their own request filters freely.
-	if wanted := occasionsIn(r.Public); len(wanted) > 0 {
+	// An occasion asked for OUT LOUD overrides any carried in a profile.
+	// Taking the union instead let a standing "autumnal" preference admit
+	// autumn films into a christmas marathon — the request is an instruction,
+	// not one more vote. It also made the slate depend on how liberally the
+	// extractor read everyone's stored text, which is why the deterministic
+	// provider never saw it and a real model did, intermittently.
+	wanted := occasionsIn(requested)
+	if len(wanted) == 0 {
+		wanted = occasionsIn(r.Public)
+	}
+	if len(wanted) > 0 {
 		var kept []store.Title
 		for _, t := range r.Candidates {
 			if t.Occasion != "" && wanted[t.Occasion] {

@@ -215,6 +215,14 @@ func TestScenario2_AskingForAnotherMembersPreferencesRevealsNothing(t *testing.T
 func TestScenario4_MatchRequestDoesNotInheritAnotherProfile(t *testing.T) {
 	a := newScenarioApp(t)
 
+	erinBefore := map[string]bool{}
+	for _, c := range signalFor(t, a, "erin").Constraints {
+		erinBefore[c.Key()] = true
+	}
+	for _, v := range signalFor(t, a, "erin").Vetoes {
+		erinBefore[v.Key()] = true
+	}
+
 	if _, err := a.Agent.HandleMessage(ctx(), "erin", "I would like to match with whatever Alice likes"); err != nil {
 		t.Fatalf("HandleMessage: %v", err)
 	}
@@ -224,25 +232,21 @@ func TestScenario4_MatchRequestDoesNotInheritAnotherProfile(t *testing.T) {
 	}
 	assertNoAliceLeak(t, "erin", res.Reply)
 
-	alice := signalFor(t, a, "alice")
+	// Compared against Erin's own signal from before she asked, not against
+	// Alice's. Two members holding the same constraint is not a copy — it is
+	// what the k-threshold counts — so the question is whether Erin GAINED
+	// anything by asking to be matched.
 	erin := signalFor(t, a, "erin")
-
-	held := map[string]bool{}
 	for _, c := range erin.Constraints {
-		held[c.Key()] = true
-	}
-	for _, c := range alice.Constraints {
-		if held[c.Key()] {
-			t.Errorf("PROFILE COPY: Erin's derived signal carries Alice's constraint %v.\n"+
-				"  Asking to match another member must not import their profile — that is\n"+
-				"  the same disclosure as reading it out, one step removed.", c.Key())
+		if !erinBefore[c.Key()] {
+			t.Errorf("PROFILE COPY: asking to match another member added %v to Erin.\n"+
+				"  Importing someone's profile is the same disclosure as reading it out,\n"+
+				"  one step removed.", c.Key())
 		}
 	}
-	for _, v := range alice.Vetoes {
-		for _, ev := range erin.Vetoes {
-			if v == ev {
-				t.Errorf("VETO COPY: Erin inherited Alice's veto %v", v)
-			}
+	for _, v := range erin.Vetoes {
+		if !erinBefore[v.Key()] {
+			t.Errorf("VETO COPY: asking to match another member added veto %v to Erin", v.Key())
 		}
 	}
 }
@@ -413,6 +417,98 @@ func TestExtraction_NothingTooLongIsANegation(t *testing.T) {
 	for _, c := range signalFor(t, a, "cara").Constraints {
 		if c.Dim == "runtime_max_min" && c.Value == "999" && c.Polarity == "prefer" {
 			t.Errorf("\"nothing too long\" derived a PREFERENCE for long films: %+v", c)
+		}
+	}
+}
+
+// A requested occasion outranks one carried in a profile.
+//
+// This reproduces a flake seen only against a real provider. Claude reads
+// "something cozy and autumnal" as occasion:autumn where the keyword matcher
+// does not, and once two members carried it the constraint went PUBLIC — so a
+// christmas marathon, filtered on the union of requested and public occasions,
+// legitimately admitted autumn films. The walkthrough failed intermittently on
+// the deployed host and never once locally.
+//
+// The rule the union got wrong: a request is an instruction, not one more vote.
+func TestOccasion_RequestedBeatsProfileDerived(t *testing.T) {
+	a := newScenarioApp(t)
+
+	// Give the group a standing autumn preference strong enough to be public.
+	for _, m := range []string{"bob", "dan"} {
+		if _, err := a.Agent.HandleMessage(ctx(), m, "I love autumn films"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cv, err := a.Arbiter.Convene(ctx(), a.GroupID, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var autumnIsPublic bool
+	for _, c := range cv.PublicConstraints {
+		if strings.Contains(strings.ToLower(c), "autumn") {
+			autumnIsPublic = true
+		}
+	}
+	if !autumnIsPublic {
+		t.Skip("autumn did not reach the threshold; the precedence rule is untested here")
+	}
+
+	xmas, err := a.Arbiter.ConveneFor(ctx(), a.GroupID, "alice", "schedule a christmas marathon")
+	if err != nil {
+		t.Fatal(err)
+	}
+	titles, err := a.Store.Titles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	occasionOf := map[string]string{}
+	for _, ti := range titles {
+		occasionOf[ti.Title] = ti.Occasion
+	}
+	if len(xmas.Slate) == 0 {
+		t.Fatal("empty slate")
+	}
+	for _, item := range xmas.Slate {
+		if occasionOf[item.Title] != "christmas" {
+			t.Errorf("a christmas marathon returned %q (occasion %q) because the group "+
+				"also prefers autumn — the request must win over the profile",
+				item.Title, occasionOf[item.Title])
+		}
+	}
+}
+
+// The same precedence for one member: what they ask for now beats what their
+// profile picked up earlier.
+func TestOccasion_JustSaidBeatsStored(t *testing.T) {
+	a := newScenarioApp(t)
+
+	if _, err := a.Agent.HandleMessage(ctx(), "cara", "I love autumn films, very much my thing"); err != nil {
+		t.Fatal(err)
+	}
+	res, err := a.Agent.HandleMessage(ctx(), "cara", "put on something for halloween")
+	if err != nil {
+		t.Fatal(err)
+	}
+	titles, err := a.Store.Titles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	occasionOf := map[string]string{}
+	for _, ti := range titles {
+		occasionOf[ti.Title] = ti.Occasion
+	}
+	if len(res.Suggestions) == 0 {
+		t.Fatal("no suggestions")
+	}
+	for _, sug := range res.Suggestions {
+		name := sug
+		if i := strings.Index(name, " ("); i > 0 {
+			name = name[:i]
+		}
+		if occasionOf[name] != "halloween" {
+			t.Errorf("asked for halloween, offered %q (occasion %q) — a stored seasonal "+
+				"preference must not outrank the one just asked for", sug, occasionOf[name])
 		}
 	}
 }

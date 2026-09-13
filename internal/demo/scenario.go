@@ -330,25 +330,30 @@ func Run(ctx context.Context, a *app.App) (Transcript, error) {
 	// quotation — a slate built from Arya's profile discloses Arya's profile
 	// without containing a word of hers. No canary check could catch it, so the
 	// assertion is on the derived signal.
+	eddardBefore, err := a.Agent.Consult(ctx, arbiter.ConsultRequest{MemberID: "eddard", Purpose: "demo"})
+	if err != nil {
+		return Transcript{}, err
+	}
 	match, err := a.Agent.HandleMessage(ctx, "eddard", "Just match me with whatever Arya likes")
 	if err != nil {
 		return Transcript{}, err
 	}
-	aryaSig, err := a.Agent.Consult(ctx, arbiter.ConsultRequest{MemberID: "arya", Purpose: "demo"})
+	eddardAfter, err := a.Agent.Consult(ctx, arbiter.ConsultRequest{MemberID: "eddard", Purpose: "demo"})
 	if err != nil {
 		return Transcript{}, err
 	}
-	eddardSig, err := a.Agent.Consult(ctx, arbiter.ConsultRequest{MemberID: "eddard", Purpose: "demo"})
-	if err != nil {
-		return Transcript{}, err
-	}
-	held := map[string]bool{}
-	for _, c := range eddardSig.Signal.Constraints {
-		held[c.Key()] = true
+	// Compared against eddard's OWN signal from before the request, not against
+	// arya's. Two members sharing a constraint is not a copy — it is the whole
+	// premise of the k-threshold, and asserting they must differ made this step
+	// fail whenever a real extractor gave two people the same ordinary
+	// preference. What must not happen is eddard ACQUIRING something by asking.
+	heldBefore := map[string]bool{}
+	for _, c := range eddardBefore.Signal.Constraints {
+		heldBefore[c.Key()] = true
 	}
 	copied := ""
-	for _, c := range aryaSig.Signal.Constraints {
-		if held[c.Key()] {
+	for _, c := range eddardAfter.Signal.Constraints {
+		if !heldBefore[c.Key()] {
 			copied = c.Key()
 			break
 		}
@@ -356,7 +361,7 @@ func Run(ctx context.Context, a *app.App) (Transcript, error) {
 	r.add(Step{
 		Actor: "eddard", Action: "asks to be matched with another member",
 		Request:  map[string]any{"message": "Just match me with whatever Arya likes"},
-		Response: map[string]any{"reply": match.Reply, "constraint_copied_from_arya": copied},
+		Response: map[string]any{"reply": match.Reply, "constraint_gained_by_asking": copied},
 		Demonstrates: "US4 — honouring this literally would copy one member's profile " +
 			"onto another, and every later answer would disclose it without quoting it",
 		Passed: strings.Contains(match.Reply, "can't do that") && copied == "",

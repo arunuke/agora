@@ -87,10 +87,15 @@ func (a *Agent) HandleMessage(ctx context.Context, memberID, text string) (Messa
 	}
 
 	var ack []string
-	for _, c := range extractFrom(ctx, a, text, tier) {
+	// Constraints from THIS message, kept apart from the stored profile: an
+	// occasion someone asks for now outranks one they mentioned last week.
+	// Without this, "put on something for halloween" returned autumn films to a
+	// member whose profile had picked up an autumn preference along the way.
+	justSaid := extractFrom(ctx, a, text, tier)
+	for _, c := range justSaid {
 		ack = append(ack, c.Human())
 	}
-	titles, err := a.recommendFor(ctx, derived, 3)
+	titles, err := a.recommendFor(ctx, derived, 3, justSaid)
 	if err != nil {
 		return MessageResult{}, err
 	}
@@ -294,7 +299,7 @@ func (a *Agent) extract(ctx context.Context, text string) ([]vocab.Constraint, [
 	return cs, nil, TierKeyword
 }
 
-func (a *Agent) recommendFor(ctx context.Context, d rawctx.Derived, n int) ([]string, error) {
+func (a *Agent) recommendFor(ctx context.Context, d rawctx.Derived, n int, justSaid []vocab.Constraint) ([]string, error) {
 	titles, err := a.st.Titles()
 	if err != nil {
 		return nil, err
@@ -302,7 +307,7 @@ func (a *Agent) recommendFor(ctx context.Context, d rawctx.Derived, n int) ([]st
 	sigs := []arbiter.Signal{{Constraints: d.Constraints, Vetoes: d.Vetoes}}
 	// Scoring one member against their own constraints. K=1 here is not an
 	// anonymity decision: with a single signal there is no group to protect.
-	r := arbiter.Reconcile(sigs, titles, arbiter.CloudParity())
+	r := arbiter.ReconcileWith(sigs, titles, arbiter.CloudParity(), justSaid)
 	var out []string
 	for i, t := range r.Candidates {
 		if i >= n {

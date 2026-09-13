@@ -572,3 +572,178 @@ care about worthless.
 mirroring the existing `k` assertion. Both are checked through `/healthz`, so
 the run verifies what the container is actually doing rather than what the flags
 implied it would do.
+
+
+# Session 4 — 2026-09-12/13: what manual testing caught that the suite did not
+
+The suite was green for every single issue in this section. 43 tests, two
+adversarial gates, a 16-step walkthrough, `make pipeline` exiting 0 — all of it
+passing, continuously, while each of these defects sat in the code.
+
+Every one was found by Arun running the real thing: a deploy, a curl against
+the deployed host, a changed option. That is the finding worth recording. The
+tests were not weak in the ordinary sense — they were precise about the wrong
+surface, or they exercised a machine whose configuration could not reproduce
+the one that mattered.
+
+## 1. The numeric side channel — the most serious defect found
+
+**How it surfaced.** Arun changed an option in a curl against the deployed
+host, looked at the JSON, and said: *"the response appears to be canned and
+also prints sensitive data."*
+
+**What it was.** Every `SlateItem` carried a `score`. That score is the sum of
+ALL constraint weights — public and private alike, which is exactly what lets a
+below-threshold constraint influence ranking without being speakable. Published
+to members, it was a numeric channel around the entire anonymity layer:
+subtract what the public constraints explain, and the residual is the weight of
+the private ones.
+
+Demonstrated on the seeded family. Public constraints were
+`[comedies, something short]`, and the slate a member received was:
+
+    Run Lola Run        score=3.90   tone=intense  genre=thriller
+    The Wrong Trousers  score=3.90   tone=cozy     genre=animation
+    Groundhog Day       score=3.60   tone=light    genre=comedy
+
+Two non-comedies scoring above a comedy. The surplus was Catelyn's `intense`
+and `thriller`, Daenerys's `cozy`, Eddard's `animation` — the exact singletons
+`seed/members.json` annotates as *must stay private*. Printed in the convene
+response and again in every `movie_night_ready` notification.
+
+**Why five anonymity tests missed it.** Every one of them asserts on WORDS —
+the justification names no member, no below-threshold phrase is spoken, the
+veto is unexplainable. The anonymity model was written in terms of what the
+system SAYS. Nothing asserted on what it COUNTS. `determinism_test.go` even
+contains `"documentary is private but must still score"`, pinning the exact
+behaviour that made the leak possible, with no accompanying rule that the score
+must therefore never be published.
+
+**Fixed.** `SlateItem.Score` is no longer serialised; members get the order,
+which is the part that carries meaning. The new gate asserts on the SERIALISED
+convene and notification, because that is what a member receives — a field that
+exists in Go but never reaches JSON is not a leak, and a test inspecting the
+struct could not tell the difference.
+
+**The lesson.** A privacy property expressed as "we never say X" leaves every
+non-verbal channel unguarded. Ask what else is derived from the secret and
+crosses the boundary: numbers, orderings, counts, latencies, response sizes.
+
+## 2. The walkthrough failed on the deployed host and never locally
+
+**How it surfaced.** `make deploy-host` reached the verification step and
+printed `FAIL: walkthrough passed 15 of 16 steps — step 14 (convenes a
+christmas movie marathon): When Harry Met Sally`.
+
+**What it was.** Three separate defects, all invisible locally because the
+local pipeline runs the deterministic extractor and the host runs Claude.
+
+*Occasion precedence.* The occasion filter took the UNION of the requested
+occasion and any in the group's public constraints. Claude reads "something
+cozy and autumnal" as `occasion:autumn` where the keyword matcher does not;
+once two members carried it, autumn went public, and a christmas marathon
+legitimately admitted autumn films. A request is an instruction, not one more
+vote — it now overrides profile-derived occasions, and the same precedence
+applies to a single member's message, so what they ask for now beats what their
+profile picked up earlier.
+
+*A wrong assertion.* The match-request step asserted that the asker's derived
+signal shared NO constraint with the member they asked to match. Two members
+sharing a constraint is not a copy — it is the entire premise of the
+k-threshold. Under a real extractor two members held `availability:rental` and
+the step failed while behaving correctly. It now compares the asker's signal
+before and after the request: the question is whether they GAINED something by
+asking.
+
+*Flakiness, and what it means.* Three runs of the same walkthrough against the
+same host returned 12/16, 15/16 and 16/16. Model-based extraction varies run to
+run, so assertions calibrated against a deterministic extractor are
+intermittently wrong. A demo gate that passes two times in three is worse than
+one that fails, because it teaches you to re-run it.
+
+**Why the suite missed it.** Every test runs against `llm.Deterministic` — a
+deliberate choice, and the right one: a gate that depends on a network call is
+not a gate. But it means the entire suite exercises one extractor, and the
+deployed system uses another. The property under test was never wrong; the
+INPUT distribution was.
+
+**Still open.** Nothing currently runs the suite against a real provider. The
+walkthrough on the deployed host is the only signal, and it is a manual one.
+
+## 3. `make deploy-host` had a target that did not exist
+
+**How it surfaced.** Arun ran `make deploy-host`. It passed preflight, then:
+`No rule to make target 'package-linux', needed by 'deploy-host'`.
+
+**What it was.** `deploy-host` had always declared a dependency on
+`package-linux`, and `package-linux` was never defined — in the Makefile or in
+the stale `Makefile.txt` copy beside it. Every local target worked; the one
+path nobody had run end-to-end was broken from the start.
+
+**Why nothing caught it.** `make pipeline` is a real gate and exercises build,
+test, package, container, teardown. It does not touch the deploy path, and
+nothing else does either. An unreferenced prerequisite is not a syntax error —
+make only discovers it when that target is actually requested.
+
+## 4. A schema migration that only a deployed host could hit
+
+**Found while fixing 3**, before it could bite, but it belongs here because the
+local pipeline structurally cannot reproduce it.
+
+The `occasion` column was added this session. `create table if not exists`
+leaves an EXISTING table's shape alone, and a deployed host reuses its data
+volume across deploys — so the new binary would open an old database, find no
+`occasion` column, and fail its first insert at startup. The container never
+becomes healthy and the deploy fails after the image has already transferred.
+
+`make pipeline` runs `docker compose down -v` every single run. It always
+starts from an empty volume, so the upgrade path had no local representation at
+all. Fixed with an idempotent column migration plus a test that builds a
+database, rewinds it to the previous shape, and reopens it — the only place
+that path now exists.
+
+## 5. The published port was one the firewall dropped
+
+**How it surfaced.** Arun: *"The security rules allow 80, 22 and 443, but the
+script looks for 8080."*
+
+A container listening on a port the security group drops is healthy and
+unreachable, and from outside that is indistinguishable from a broken
+application — `verify-host` would have reported a connect timeout after the
+full deploy. Split into `DEPLOY_PORT`, since the local port is constrained by
+what is free on a laptop and the remote one by what the firewall allows.
+
+## 6. "Is this using anthropic APIs?"
+
+Not a defect, but it exposed a legibility gap. The deployed host was running
+the deterministic extractor because `~/agora.env` had never been installed, and
+the only way to tell was `/healthz`. The reply itself read as plausible prose
+either way.
+
+`/healthz` reporting the live provider is what made this a ten-second question
+instead of an afternoon. That instinct — make the thing that could silently
+differ observable from outside the process — is the same one behind echoing the
+anonymity policy, and it paid for itself here.
+
+## What this session changes about how to test this system
+
+1. **Assert on the serialised form, not the struct.** What a member receives is
+   JSON. Three of these defects lived in the gap between what the code held and
+   what it emitted.
+
+2. **For every privacy property, enumerate the non-verbal channels.** The
+   anonymity gates were thorough about language and silent about arithmetic.
+
+3. **A hermetic suite proves the property, not the deployment.** Running
+   everything against the deterministic extractor is correct and should stay.
+   It is not evidence about the system that actually ships, and this session
+   produced three defects that only the real provider could reveal.
+
+4. **Exercise the deploy path, or accept it is untested.** `package-linux`,
+   the stale volume, and the port were all in the same blind spot: reachable
+   only by deploying, and therefore never reached.
+
+5. **Flaky gates are worse than failing ones.** 12/16, then 15/16, then 16/16
+   on an unchanged system. Each assertion that cannot survive a real
+   extractor's variance must be rewritten to test the property rather than one
+   extractor's output.
