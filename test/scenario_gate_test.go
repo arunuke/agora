@@ -13,7 +13,7 @@ import (
 	"github.com/arunuke/agora/internal/llm"
 )
 
-// SCENARIO GATE — the four scenarios in docs/Build-and-Deploy.md, automated.
+// SCENARIO GATE — the four scenarios in docs/04_Build-and-Deploy.md, automated.
 //
 // Those scenarios sit ABOVE the other gates by design: they are written in
 // terms of what a user does, not what a component guarantees. They therefore

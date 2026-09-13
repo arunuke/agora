@@ -2,9 +2,11 @@
 
 Historical record of collaboration with Claude on Agora: where we started, what changed, and why.
 
-*A note on filenames.* The four `*_Rescoped.md` documents referenced throughout this log were
-later consolidated into a single [Rescoped.md](Rescoped.md), one section each. Entries below keep
-the names they were written with — a record that renames itself is no longer a record.
+*A note on filenames.* Two things moved after this log was written. The four
+`*_Rescoped.md` documents were consolidated into a single
+[06_Rescoped.md](06_Rescoped.md), one section each; and the documents were given
+`NN_` prefixes so the folder reads in order. Entries below keep the names they
+were written with — a record that renames itself is no longer a record.
 
 ---
 
@@ -43,7 +45,7 @@ Requirements, Design, Implementation, Build-and-Deploy, Guidelines, Rationale,
 FAQ and ClaudeDirections were written first and committed before Claude saw the
 project. They are the specification everything after this was measured against,
 and they are preserved unchanged in this folder — the rescoping in
-[Rescoped.md](Rescoped.md) is recorded as a delta against them rather than as
+[06_Rescoped.md](06_Rescoped.md) is recorded as a delta against them rather than as
 an edit to them.
 
 That order is why this log can be read as a record at all: there is an original

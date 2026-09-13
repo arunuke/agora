@@ -13,17 +13,17 @@ design.
 
 | Section | Rescopes |
 |---|---|
-| [Requirements](#requirements) | [Requirements.md](Requirements.md) |
-| [Design](#design) | [Design.md](Design.md) |
-| [Implementation](#implementation) | [Implementation.md](Implementation.md) |
-| [Build & Deploy](#build--deploy) | [Build-and-Deploy.md](Build-and-Deploy.md) |
+| [Requirements](#requirements) | [01_Requirements.md](01_Requirements.md) |
+| [Design](#design) | [02_Design.md](02_Design.md) |
+| [Implementation](#implementation) | [03_Implementation.md](03_Implementation.md) |
+| [Build & Deploy](#build--deploy) | [04_Build-and-Deploy.md](04_Build-and-Deploy.md) |
 
 
 ---
 
 # Requirements
 
-*Rescopes [Requirements.md](Requirements.md).*
+*Rescopes [01_Requirements.md](01_Requirements.md).*
 
 ## TL; DR
 
@@ -278,7 +278,7 @@ And can then state in one sentence what Agora does that a single LLM call with e
 
 # Design
 
-*Rescopes [Design.md](Design.md).*
+*Rescopes [02_Design.md](02_Design.md).*
 
 ## TL;DR
 
@@ -912,7 +912,7 @@ Unchanged in intent from `Design.md`, now with concrete seams.
 
 # Implementation
 
-*Rescopes [Implementation.md](Implementation.md).*
+*Rescopes [03_Implementation.md](03_Implementation.md).*
 
 ## TL;DR
 
@@ -1232,7 +1232,7 @@ Step 3 before the live provider and step 6 before Loop B are both deliberate. Th
 
 # Build & Deploy
 
-*Rescopes [Build-and-Deploy.md](Build-and-Deploy.md).*
+*Rescopes [04_Build-and-Deploy.md](04_Build-and-Deploy.md).*
 
 ## TL;DR
 

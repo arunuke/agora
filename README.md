@@ -416,7 +416,7 @@ The two gates live in **separate files** on purpose. `isolation_gate_test.go` al
 
 The isolation gate is adversarial: a six-probe battery (direct, indirect, prompt injection, roleplay-as-debugger, partial-knowledge inference, aggregation) run for every ordered pair of members, checked three ways — verbatim, stemmed variant, and embedding cosine for paraphrase. Each member carries a rare canary preference so any hit is unambiguous.
 
-`scenario_gate_test.go` automates the four use cases in [docs/Build-and-Deploy.md](docs/Build-and-Deploy.md), seeding the cast they describe. The one that earns its place is scenario 4 — asking to be *matched* with another member. That leaks by inference rather than by quotation: a slate built from someone's profile discloses it without containing a word of theirs, so no canary check could catch it. It is asserted on the derived signal instead.
+`scenario_gate_test.go` automates the four use cases in [docs/04_Build-and-Deploy.md](docs/04_Build-and-Deploy.md), seeding the cast they describe. The one that earns its place is scenario 4 — asking to be *matched* with another member. That leaks by inference rather than by quotation: a slate built from someone's profile discloses it without containing a word of theirs, so no canary check could catch it. It is asserted on the derived signal instead.
 
 `TestAnonymityGate_SlateCarriesNoNumericSideChannel` exists because anonymity was enforced on words and nothing else. The per-title score is the sum of *all* constraint weights, private ones included — published to members, it walked straight around the layer, since subtracting what the public constraints explain leaves the private weight. It is asserted on the **serialised** response, because that is what a member receives.
 
@@ -441,7 +441,7 @@ internal/
   httpapi/             net/http, ten routes, no framework
 proto/agora.proto      design artifact, deliberately not compiled
 seed/                  catalogue, members, events — replaces the Collector
-docs/                  the original documents, plus Rescoped.md
+docs/                  numbered in reading order; 06_Rescoped.md is the delta
 test/                  gates, scenarios, reliability, durability, determinism, migration
 ```
 
@@ -460,4 +460,4 @@ Every removal is a deferral. Each has a named successor and an existing seam.
 | Authentication | Solved problem | JWT on REST, mTLS between services |
 | Web UI | See above | Slack bot / web front end over the existing endpoints |
 
-See [docs/Rescoped.md](docs/Rescoped.md) for the full reasoning — requirements, design, implementation and build/deploy, each rescoped against the original in [docs/](docs/) — and [docs/ClaudeFeedback.md](docs/ClaudeFeedback.md) for the decision log.
+See [docs/06_Rescoped.md](docs/06_Rescoped.md) for the full reasoning — requirements, design, implementation and build/deploy, each rescoped against the original in [docs/](docs/) — and [docs/ClaudeFeedback.md](docs/ClaudeFeedback.md) for the decision log.

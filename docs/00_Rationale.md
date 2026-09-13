@@ -1,3 +1,18 @@
+*Read this first — and know that it was written last.*
+
+This document orients: why the project exists, which theme it answers, and what
+was traded away to fit the time available. It is deliberately numbered `00`
+because everything else assumes the context it establishes.
+
+It is also retrospective. It describes the system as it ended up, so it already
+knows that the collector was scrapped and the services collapsed into one
+process — decisions that [02_Design.md](02_Design.md) and
+[03_Implementation.md](03_Implementation.md) still describe in their original,
+unconstrained form. Those documents are preserved as written; the delta between
+them and what was built is [06_Rescoped.md](06_Rescoped.md).
+
+---
+
 # Theme
 
 Of the various themes identifed in Guidelines.md, I chose **Systems & Reliability**.
