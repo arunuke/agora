@@ -34,7 +34,20 @@ The project brings together a number of components and orchestrates them togethe
 
 ### Well-defined Boundaries
 
-A system can be reliable only when each component has well-defined boundaries which describe what they can and cannot do. In our system, the agents are bounded by collecting information but do not persist data while the arbiter is responsible for persisting information and context and sending anonymized data to LLM. The LLM acts primarily as a workhorse based on the inputs it receives and generates a response and is not expected to persist context within itself.
+A system can be reliable only when each component has well-defined boundaries which describe what they can and cannot do. The LLM acts primarily as a workhorse based on the inputs it receives and generates a response and is not expected to persist context within itself.
+
+**The boundary moved during implementation, and the version that shipped is the stronger one.** I originally specified a single writer: agents collect but do not persist, and the arbiter owns the database and anonymizes data on its way to the LLM. What was built splits ownership instead:
+
+| Data | Owner | Why |
+|---|---|---|
+| A member's raw text, their derived constraints, their profile vector | **the agent**, through a member-scoped accessor | it is that member's private zone and nothing else may reach it |
+| Convene workflow state, notifications | **the arbiter** | group-level state, which every member may see |
+
+The reason is that a single writer and the isolation guarantee cannot both hold. If the arbiter persisted raw member context it would have to receive that text, so it could read it — and the compiler-enforced privacy of `internal/agent/internal/rawctx` would be impossible to claim. The implemented split means the arbiter never holds anything identifying in the first place, so there is nothing for it to anonymize on the way out. A property that holds by construction beats one that depends on an anonymization step running correctly every time.
+
+It also matters for the production path in [Design](02_Design.md), where agent and arbiter become separate services. "Agents do not persist" would put every member's raw text on the wire to the arbiter, which is precisely what isolation exists to prevent.
+
+**What is missing: a test that states this boundary by name.** The read side is covered — two invariant tests assert that the arbiter has no accessor for raw context and that the raw SQL handle is unreachable outside the agent package — and those same mechanisms happen to constrain writes too. But no test asserts *"raw context is written only from internal/agent"* as a property in its own right. It holds today by construction rather than by assertion, which is a weaker guarantee than the rest of the privacy surface has. I ran out of time before adding it, and would rather record that than imply a coverage I do not have.
 
 ### Developer Experience
 
@@ -49,7 +62,9 @@ The system introduces a local LLM that can be consulted if the preferred LLM is 
 
 **Data Isolation and Anonymity**
 
-Data from each user is stored in a persistent data store which is not viewable by other users or their agents. Data can be accessed only through the Arbiter component which anonymizes the data before sending it to the LLM so that one user cannot determine the preferences set by another user.
+Data from each user is stored in a persistent data store which is not viewable by other users or their agents. It is reachable only through a member-scoped accessor that binds one member id at construction, so a member's agent can read and write that member's rows and no others.
+
+The arbiter — the component that talks to the LLM — never receives raw data at all. It is sent **sealed signals**: closed-vocabulary constraints and vetoes carrying no identity and no free text. So anonymization is not a step that runs before the LLM call; it is a consequence of the only thing that crosses the boundary having nowhere to put a name or a sentence.
 
 # Approach
 
