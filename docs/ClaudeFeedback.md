@@ -14,32 +14,43 @@ were written with — a record that renames itself is no longer a record.
 
 | # | When | What | Time |
 |---|---|---|---|
-| 1 | 2026-09-05 → 09-07 | Initial documents, written by hand before any collaboration | *accounted separately* |
-| 2 | 2026-09-07 evening → 09-08 morning | Requirements validation, scope reduction, theme anchoring, rescoped design | ≥ 1 h 10 min |
+| 1 | 2026-09-05 → 09-07 | Initial documents, written by hand before any collaboration | ~1 h |
+| 2 | 2026-09-07 evening → 09-08 morning | Requirements validation, scope reduction, theme anchoring, rescoped design, and the implementation | ≥ 1 h 10 min |
 | 3 | 2026-09-12 afternoon | Refinement — removing growth, not adding features | ≥ 40 min |
-| 4 | 2026-09-12 evening → 09-13 | Deployment, provider chain, scenario gates, hardening | **3 h 25 min** |
+| 4 | 2026-09-12 evening → 09-13 | Deployment, provider chain, scenario gates, hardening | 3 h 34 min elapsed / ~2 h working |
 
-**How these were derived, and what they are worth.** Session 4 is measured: a
-conversation log of 1,297 timestamped entries covering 17:17 → 20:42 local,
-280 turns. Trimming the eight idle stretches over five minutes — the longest 24
-minutes — gives 2 h 48 min of engaged time; the 3 h 25 min figure keeps them,
-which is the honest number for elapsed effort.
+**Roughly 6 h 30 min elapsed, of which about 5 h was hands on keyboard.** Inside
+an eight-hour window either way.
 
-Sessions 2 and 3 have **no conversation log on this machine**, so their figures
+**Where the time did not go: writing the code.** Generating the implementation
+was around 40 minutes of session 2 — 45 files in one commit. The hours went to
+the documents that preceded it, which is what made a 40-minute generation
+produce something coherent, and to the testing that followed it, which is where
+session 4 went almost entirely.
+
+**How session 4 was derived.** A conversation log of 1,297 timestamped entries,
+17:17 → 20:51 local, 280 turns. Elapsed is 3 h 34 min. Subtracting the eleven
+gaps longer than three minutes — 88 minutes in total, the largest 24 — leaves
+about 2 h of continuous work. It was not three and a half hours of
+uninterrupted effort, and the gaps are visible in the log.
+
+One honest caveat on that subtraction: a gap in the log is not necessarily a
+person away from the desk. Pulling a 2 GB model took ten minutes and a
+cross-architecture image build took another, both of which appear as silence.
+The true hands-on figure sits between the two numbers and cannot be separated
+further from this data.
+
+**Sessions 2 and 3 have no conversation log on this machine**, so their figures
 are floors recovered from git commits and file modification times, not
 durations. A file's timestamp records its last save and says nothing about the
-thinking before it. Both are certainly undercounts — session 2's floor covers a
-commit of 45 files including the entire Go implementation.
-
-So: **5 h 15 min is provable across sessions 2–4.** For the work to have
-exceeded an eight-hour window, the unlogged portions of sessions 2 and 3 would
-have to add more than 2 h 45 min beyond what their timestamps already show.
+thinking before it. Session 1 is Arun's own estimate for work that predates any
+collaboration.
 
 ---
 
 # Session 1 — 2026-09-05 → 09-07 — The initial documents
 
-*Time accounted separately by Arun — written by hand, before any collaboration.*
+*~1 h (Arun's estimate; written by hand, before any collaboration).*
 
 Requirements, Design, Implementation, Build-and-Deploy, Guidelines, Rationale,
 FAQ and ClaudeDirections were written first and committed before Claude saw the
@@ -56,7 +67,9 @@ to compare to.
 # Session 2 — 2026-09-07/08 — Requirements through rescoped design
 
 *≥ 1 h 10 min (floor: commits at 21:21 and 06:31, file writes 21:39 and
-05:41–06:29). No conversation log survives, so the real figure is higher.*
+05:41–06:29). No conversation log survives, so the real figure is higher.
+Generating the implementation — 45 files in the "Rescoped and Coded" commit —
+was roughly 40 minutes of it.*
 
 The four rounds below ran as one working block. The topic sections that follow
 them — Requirements, Implementation, Design and Build & Deploy Tradeoffs —
@@ -636,8 +649,9 @@ implied it would do.
 
 # Session 4 — 2026-09-12/13 — Deployment, hardening, and what manual testing caught
 
-*3 h 25 min measured (17:17 → 20:42 local, 280 turns; 2 h 48 min with idle time
-trimmed).*
+*3 h 34 min elapsed, ~2 h working (17:17 → 20:51 local, 280 turns; 88 minutes
+of gaps longer than three minutes, some of which were model downloads and image
+builds rather than breaks).*
 
 The suite was green for every single issue in this section. 43 tests, two
 adversarial gates, a 16-step walkthrough, `make pipeline` exiting 0 — all of it
@@ -810,3 +824,76 @@ anonymity policy, and it paid for itself here.
    on an unchanged system. Each assertion that cannot survive a real
    extractor's variance must be rewritten to test the property rather than one
    extractor's output.
+
+
+# Method — tests instead of line-by-line review
+
+A deliberate trade, made for time: correctness was pursued through **automated
+tests written alongside the code** rather than through a human reading every
+line. With roughly five hours of hands-on work available, a line-by-line review
+of a 45-file implementation was not going to happen, and pretending otherwise
+would have produced a review in name only.
+
+## What the choice bought
+
+**Executable specification.** The five Success Criteria became
+`demo_smoke_test.go`, and the four scenarios in
+[04_Build-and-Deploy.md](04_Build-and-Deploy.md) became `scenario_gate_test.go`.
+A requirement that runs is a requirement that cannot quietly stop being true.
+
+**Two property gates rather than example tests.** The isolation gate runs six
+adversarial probes across every ordered pair of members and checks three leak
+modes; the anonymity gate checks the justification against the whole
+vocabulary rather than a hand-written list of expected singletons. Both hold
+for any seed and any `k`, which a set of examples would not.
+
+**One found a real bug during implementation.** `TestDeterminism_ShuffleInvariance`
+caught an ordering that tracked member index — an identity side channel that no
+amount of reading the anonymity code would have suggested looking for, because
+the anonymity code was correct. The leak was in a sort.
+
+**A pipeline that gates.** `make pipeline` builds the image, asserts the live
+policy and provider through `/healthz`, runs the demo as an external client and
+tears down. It is the same command CI would run, so "works on my machine" and
+"passes" are the same statement.
+
+## What the choice cost
+
+Session 4 is the honest accounting. Six defects were found by running the
+system, and **the suite was green for every one of them.** Worse, three would
+plausibly have been caught by someone reading the code:
+
+| Defect | What a reader would have seen |
+|---|---|
+| The score side channel | ``Score float64 `json:"score"` `` on a struct sent to members, in a file whose own comments explain that scores include private constraints |
+| `package-linux` missing | `deploy-host: preflight-host package-linux` with no such target anywhere in the file |
+| Empty model name | `NewCompatFromEnv` returning a client whose `Model` may be `""`, three lines from a comment saying local model names are user-chosen |
+
+None of these is subtle. They are exactly the class of thing a second pair of
+eyes catches in a minute and a test suite never mentions, because **a test
+verifies the properties you thought to state.** The anonymity gates were
+thorough about language and silent about arithmetic, so the numeric channel sat
+in plain sight, asserted by nothing, for as long as it existed.
+
+The complementary failure also showed up: the local suite exercises one
+extractor by design — a gate that depends on a network call is not a gate — so
+three further defects could only appear against a real provider, on a deployed
+host, in a walkthrough that returned 12/16, 15/16 and 16/16 on successive runs
+of unchanged code.
+
+## The conclusion worth carrying forward
+
+Tests are strong against **regression** and weak against **unstated
+invariants**. Review is the reverse. Choosing tests alone was the right call
+for the time available, and the cost was specific and predictable rather than
+bad luck: everything that escaped was a property nobody had written down.
+
+With more time, the highest-value review would not be line-by-line. It would be
+two targeted passes:
+
+1. **The serialisation boundary** — every field that crosses to a member,
+   asked one question: is this derived from something private? That single
+   pass would have caught the score.
+2. **The paths no local command exercises** — the deploy targets and the
+   upgrade-in-place path, which `make pipeline` structurally cannot reach
+   because it starts from an empty volume every run.

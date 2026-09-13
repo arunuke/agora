@@ -116,3 +116,5 @@ Although Anonymity was not a use-case for the infrastructure problem, I wanted t
 **Human Code Reviews**
 
 Human code review was limited due to lack of time. Validation was purely  through automated tests that align with the use-cases and validated mostly sunny-side outcomes.
+
+That trade is accounted for in [ClaudeFeedback.md](ClaudeFeedback.md) under *Method — tests instead of line-by-line review*, including the three defects a reader would plausibly have caught and the automated suite did not.
