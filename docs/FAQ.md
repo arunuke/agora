@@ -62,6 +62,18 @@ A single LLM call with every user's preferences in the prompt would produce a sl
 
 It conflated two different things. Authentication — proving a caller is who they claim — is genuinely out of scope and is a solved problem. Cross-user information isolation is the thesis, so waiving it away would have waived away the project. The assumption now reads: callers are trusted as to identity, not as to content.
 
+### The assignment allows 8 hours. How long did this actually take?
+
+About **6 hours 30 minutes elapsed, of which roughly 5 were hands on keyboard**, across four sessions: the initial documents written by hand (~1 h), requirements through rescoped design and the implementation (≥ 1 h 10 min), a refinement pass (≥ 40 min), and deployment plus hardening (3 h 34 min elapsed, ~2 h working).
+
+Only the last is measured — a conversation log of 1,297 timestamped entries, from which eleven gaps longer than three minutes subtract 88 minutes. The middle two are *floors* recovered from git commits and file modification times, since no conversation log survives for them; a file's timestamp records its last save and says nothing about the thinking before it. The first is the author's own estimate. The full derivation, including which numbers are measured and which are inferred, is in [ClaudeFeedback.md](ClaudeFeedback.md).
+
+### Where did the time actually go? Not writing the code?
+
+No. Generating the implementation was around **40 minutes** — 45 files in a single commit. The time went to the documents that preceded it and the testing that followed.
+
+That ordering is the point rather than an accident. The requirements, design and implementation documents existed before any code was generated, which is why a 40-minute generation produced something coherent instead of something that needed rewriting. And the largest single session was spent not on features but on deploying the result and discovering what the test suite had not been asked to check — six defects, every one found by running the system while the suite stayed green. That accounting is in [ClaudeFeedback.md](ClaudeFeedback.md) under *Method — tests instead of line-by-line review*.
+
 ### Why not three deployed services over gRPC as originally designed?
 
 Time budget. The assignment targets 1–2 hours with an 8-hour hard limit and explicitly grades scoping. Three services, protobuf, Docker images, K8s manifests and a managed cluster is multi-week work whose reviewer-visible payoff is near zero — the interesting behavior is the coordination logic, not the transport. The service boundaries are kept as internal interfaces so the split is mechanical later, and gRPC/Kubernetes are documented as path-to-production steps.
