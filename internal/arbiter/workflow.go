@@ -45,9 +45,31 @@ type Config struct {
 	Deadline time.Duration
 }
 
+// DefaultMemberDeadline caps how long the fan-out waits for one member's agent.
+// It is the arbiter's number, so it is defined here and referenced everywhere
+// else — it previously appeared as a bare literal in three packages, which is
+// two more places than anyone would think to change.
+//
+// It is sized for the SLOWEST provider it may front, not the fastest. The
+// deterministic extractor answers instantly and never approaches any deadline,
+// so a generous value costs it nothing. A real provider does approach it: a
+// single Anthropic extraction measured ~4.5s against the deployed host, and at
+// the previous 2s every consult in the fan-out was cancelled mid-flight,
+// silently degrading each convene to tier 2 while the key was healthy.
+//
+// A default that only works for the fast path is a trap: it fails for whoever
+// configures a real provider and does nothing for whoever does not. Six seconds
+// is correct for both, and the only cost is that a genuinely hung member takes
+// six seconds to be declared missing rather than two — which no test and no
+// demo depends on.
+//
+// The upper bound is the walkthrough's hanging-member step, whose budget is
+// this deadline plus a Loop B ranking call. The FAQ records both bounds.
+const DefaultMemberDeadline = 6 * time.Second
+
 func New(st Store, ag MemberAgent, client llm.LLMClient, clk clock.Clock, sw *llm.Switches, cfg Config) *Arbiter {
 	if cfg.Deadline == 0 {
-		cfg.Deadline = 2 * time.Second
+		cfg.Deadline = DefaultMemberDeadline
 	}
 	return &Arbiter{st: st, agent: ag, llm: client, clk: clk, sw: sw,
 		policy: cfg.Policy, deadline: cfg.Deadline}

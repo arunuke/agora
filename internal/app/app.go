@@ -46,7 +46,7 @@ type Options struct {
 
 func New(ctx context.Context, o Options) (*App, error) {
 	if o.Deadline == 0 {
-		o.Deadline = 2 * time.Second
+		o.Deadline = arbiter.DefaultMemberDeadline
 	}
 	st, err := store.Open(o.DBPath)
 	if err != nil {

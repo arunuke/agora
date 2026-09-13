@@ -316,6 +316,10 @@ FASTEST PATH — the whole demo in one request:
   Runs the scripted scenario server-side and returns a narrated transcript:
   each step with its actor, request, response, and the assertion it shows.
 
+  You are reading it as an outside evaluator, not as a member of the family.
+  It drives all five members itself, so it shows what each of them said —
+  a view no member has. Steps 5, 12 and 13 are where that boundary is tested.
+
 POKE AT IT YOURSELF:
 
   curl -s $HOST/v1/members | jq

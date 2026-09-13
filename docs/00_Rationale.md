@@ -183,3 +183,50 @@ The current set of tests are a bit weak on anonymity validation. Testing the sys
 This is not a hypothetical worry. [The one anonymity leak found in this project](ClaudeFeedback.md#1-the-numeric-side-channel--the-most-serious-defect-found) was caught by reading a response by hand, not by the suite: every slate published a per-title **score**, and that score is the sum of *all* constraint weights — including the below-threshold ones the k-threshold exists to suppress. Subtracting what the public constraints explain left the private weight in plain arithmetic, in the convene response and in every notification.
 
 Five anonymity tests were green the entire time it was there. Each of them asserts on what the system *says* — the justification names no member, speaks no below-threshold phrase, cannot explain a veto. None asserted on what it *counts*. That is the precise shape of the gap: the property was stated about language, so every non-verbal channel derived from the same secret went unguarded. The varied-input testing described above is what would close it, and a review pass over every field that crosses to a member — asking only *is this derived from something private?* — would have caught this one in a minute.
+
+
+---
+
+# Time Spent
+
+| # | When | What | Time |
+|---|---|---|---|
+| 1 | 2026-09-05 → 09-07 | Initial documents, written by hand before any collaboration | ~1 h |
+| 2 | 2026-09-07 evening → 09-08 morning | Requirements validation, scope reduction, theme anchoring, rescoped design, and the implementation | ≥ 1 h 10 min |
+| 3 | 2026-09-12 afternoon | Refinement — removing growth, not adding features | ≥ 40 min |
+| 4 | 2026-09-12 evening → 09-13 | Deployment, provider chain, scenario gates, hardening | 3 h 34 min elapsed / ~2 h working |
+| 5 | 2026-09-13, continuing the same conversation | Review pass: demo readiness, the deadline, a named constant, the catalogue | +2 h 48 min elapsed / ~1 h 25 min working |
+
+**Roughly 9 h 20 min elapsed across five sessions, of which about 6 h 25 min was
+hands on keyboard.** The first four sit inside an eight-hour window; session 5 is
+a review pass that ran past it, and is recorded separately rather than folded in
+to keep that boundary legible.
+
+**Where the time did not go: writing the code.** Generating the implementation
+was around 40 minutes of session 2 — 45 files in one commit. The hours went to
+the documents that preceded it, which is what made a 40-minute generation
+produce something coherent, and to the testing that followed it, which is where
+session 4 went almost entirely.
+
+**How session 4 was derived.** A conversation log of 1,297 timestamped entries,
+17:17 → 20:51 local, 280 turns. Elapsed is 3 h 34 min. Subtracting the eleven
+gaps longer than three minutes — 88 minutes in total, the largest 24 — leaves
+about 2 h of continuous work. It was not three and a half hours of
+uninterrupted effort, and the gaps are visible in the log.
+
+One honest caveat on that subtraction: a gap in the log is not necessarily a
+person away from the desk. Pulling a 2 GB model took ten minutes and a
+cross-architecture image build took another, both of which appear as silence.
+The true hands-on figure sits between the two numbers and cannot be separated
+further from this data.
+
+**Sessions 2 and 3 have no conversation log on this machine**, so their figures
+are floors recovered from git commits and file modification times, not
+durations. A file's timestamp records its last save and says nothing about the
+thinking before it. Session 1 is my own estimate, for work that predates any
+collaboration.
+
+The conversation logs these figures are drawn from are in the repository
+alongside this document, and [ClaudeFeedback.md](ClaudeFeedback.md) records what
+each session actually did — including the sessions where the interesting work
+was undoing something from the one before.

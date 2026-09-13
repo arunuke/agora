@@ -17,7 +17,7 @@ what you came for.
 
 | | Document | What it is | Written by |
 |---|---|---|---|
-| 00 | [Rationale](docs/00_Rationale.md) | Why this project exists, the theme, and what was traded away for time. **The design rationale doc.** | Arun |
+| 00 | [Rationale](docs/00_Rationale.md) | Why this project exists, the theme, what was traded away for time, and how long it took. **The design rationale doc.** | Arun |
 | 01 | [Requirements](docs/01_Requirements.md) | Problem statement, goals, user stories, success criteria | Arun |
 | 02 | [Design](docs/02_Design.md) | The original, unconstrained design — three services, a collector, gRPC | Arun |
 | 03 | [Implementation](docs/03_Implementation.md) | Service architecture and folder structure as first planned | Arun |
@@ -30,7 +30,7 @@ Three more sit outside the sequence, read at need rather than in order:
 
 | Document | What it is | Written by |
 |---|---|---|
-| [ClaudeFeedback](docs/ClaudeFeedback.md) | The collaboration log: every session, what changed, what was got wrong, time spent, and the tests-over-review trade | **Claude** |
+| [ClaudeFeedback](docs/ClaudeFeedback.md) | The collaboration log: every session, what changed, what was got wrong, and the tests-over-review trade | **Claude** |
 | [FAQ](docs/FAQ.md) | Design decisions as questions — including how long this took | Arun, with entries added by **Claude** |
 | [Guidelines](docs/Guidelines.md) | The assignment brief itself | — |
 

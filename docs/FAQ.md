@@ -64,9 +64,9 @@ It conflated two different things. Authentication — proving a caller is who th
 
 ### The assignment allows 8 hours. How long did this actually take?
 
-About **6 hours 30 minutes elapsed, of which roughly 5 were hands on keyboard**, across four sessions: the initial documents written by hand (~1 h), requirements through rescoped design and the implementation (≥ 1 h 10 min), a refinement pass (≥ 40 min), and deployment plus hardening (3 h 34 min elapsed, ~2 h working).
+About **6 hours 30 minutes elapsed, of which roughly 5 were hands on keyboard**, across the four sessions that produced the submission: the initial documents written by hand (~1 h), requirements through rescoped design and the implementation (≥ 1 h 10 min), a refinement pass (≥ 40 min), and deployment plus hardening (3 h 34 min elapsed, ~2 h working). A fifth session afterwards — a review pass that fixed a deadline default and enlarged the catalogue — adds ~2 h 48 min, counted separately so the eight-hour boundary stays legible.
 
-Only the last is measured — a conversation log of 1,297 timestamped entries, from which eleven gaps longer than three minutes subtract 88 minutes. The middle two are *floors* recovered from git commits and file modification times, since no conversation log survives for them; a file's timestamp records its last save and says nothing about the thinking before it. The first is the author's own estimate. The full derivation, including which numbers are measured and which are inferred, is in [ClaudeFeedback.md](ClaudeFeedback.md).
+Only the last is measured — a conversation log of 1,297 timestamped entries, from which eleven gaps longer than three minutes subtract 88 minutes. The middle two are *floors* recovered from git commits and file modification times, since no conversation log survives for them; a file's timestamp records its last save and says nothing about the thinking before it. The first is the author's own estimate. The full derivation, including which numbers are measured and which are inferred, is in [00_Rationale.md](00_Rationale.md) under *Time Spent*.
 
 ### Where did the time actually go? Not writing the code?
 
@@ -116,7 +116,7 @@ A simulated clock. A `tick` control advances time so scheduled convenes and seas
 
 An automated check: every seeded user's private preference strings are matched against every response returned to any other user, and the build fails on any hit. Isolation is easy to claim and easy to violate by accident — particularly through LLM-generated justification text — so it is a gate, not a manual inspection.
 
-### Why is the per-member consult deadline 6 seconds, and not 2?
+### Why is the per-member consult deadline 6 seconds?
 
 Because 2 was calibrated against the wrong provider.
 
@@ -126,9 +126,11 @@ Nothing was broken: the ladder did exactly what it exists to do. But it was degr
 
 The upper bound is the walkthrough's hanging-member step. That convene costs the deadline plus a Loop B ranking call (~3s measured), so the total must stay inside the step's budget. 6 seconds clears extraction with margin and stays well inside it.
 
+It is the **default** rather than a deployment override, deliberately. A default sized for the fast path is a trap: it breaks for whoever configures a real provider and buys nothing for whoever does not, because the deterministic extractor never approaches any deadline. The only cost of the larger value is that a genuinely hung member takes six seconds to be declared missing instead of two, which nothing in the tests or the demo depends on.
+
 The number is arbitrary in the sense that any value in a range would do. It is not arbitrary in the sense that matters: it was chosen from measurements of the provider actually deployed, and the two bounds that constrain it are both observable.
 
-A related gap, recorded rather than fixed: `--member-deadline` is a flag, not an environment variable like `AGORA_K`, so a container tunes it through a `command:` override in `docker-compose.yml` rather than through configuration.
+A related gap, recorded rather than fixed: `--member-deadline` is a flag, not an environment variable like `AGORA_K`, so departing from the default means a `command:` override in `docker-compose.yml` rather than configuration.
 
 ### What happens when the LLM is down?
 

@@ -33,6 +33,15 @@ type Step struct {
 }
 
 type Transcript struct {
+	// Vantage names WHO is reading this, because the answer is nobody in the
+	// family. The walkthrough is run by an outside evaluator to observe how the
+	// system behaves — it drives all five members itself and therefore prints
+	// what each of them said. No member has that view: through /v1/message a
+	// member sees only their own agent, which is the surface the isolation
+	// gates test. Said plainly, because a reader auditing the privacy claim
+	// would otherwise be right to point here and ask why Bran can read Arya's
+	// sentences.
+	Vantage string  `json:"vantage"`
 	Steps   []Step  `json:"steps"`
 	Summary Summary `json:"summary"`
 }
@@ -119,6 +128,7 @@ func Run(ctx context.Context, a *app.App) (Transcript, error) {
 	}
 	r.add(Step{
 		Actor: "daenerys", Action: "asks for a recommendation",
+		Request: map[string]any{"user_id": "daenerys", "message": "what should I watch tonight?"},
 		Response: map[string]any{
 			"response":        m2.Reply,
 			"suggestions":     m2.Suggestions,
@@ -136,6 +146,7 @@ func Run(ctx context.Context, a *app.App) (Transcript, error) {
 	}
 	r.add(Step{
 		Actor: "bran", Action: "convenes the family",
+		Request:      map[string]any{"user_id": "bran"},
 		Response:     cv,
 		Demonstrates: "US3 — all members consulted in parallel, ranked slate returned",
 		Passed:       len(cv.Slate) > 0 && cv.Quorum.Represented == cv.Quorum.Of,
@@ -248,14 +259,21 @@ func Run(ctx context.Context, a *app.App) (Transcript, error) {
 	})
 
 	// ---- US5c: completions down, embeddings up → tier 2 ------------------
+	//
+	// The SAME sentence is sent at tier 2 and again at tier 3. Holding the input
+	// fixed is what makes the ladder legible: whatever differs in the two
+	// replies is the cost of losing a provider, not the cost of asking
+	// differently.
+	const degradedMsg = "I want something funny and short"
 	a.Switch.SetLLMDown(true)
-	m3, err := a.Agent.HandleMessage(ctx, "catelyn", "I want something funny and short")
+	m3, err := a.Agent.HandleMessage(ctx, "catelyn", degradedMsg)
 	a.Switch.Reset()
 	if err != nil {
 		return Transcript{}, err
 	}
 	r.add(Step{
 		Actor: "catelyn", Action: "sends a message with the completion provider down",
+		Request:  map[string]any{"user_id": "catelyn", "message": degradedMsg},
 		Response: map[string]any{"response": m3.Reply, "tier": m3.Tier, "degraded": m3.Degraded},
 		Demonstrates: "US5 tier 2 — embeddings map the phrase onto the closed vocabulary. " +
 			"Completion and embedding endpoints fail independently, so this is a real operating mode",
@@ -265,13 +283,14 @@ func Run(ctx context.Context, a *app.App) (Transcript, error) {
 	// ---- US5d: both down → tier 3 ----------------------------------------
 	a.Switch.SetLLMDown(true)
 	a.Switch.SetEmbedDown(true)
-	m4, err := a.Agent.HandleMessage(ctx, "catelyn", "I want something funny and short")
+	m4, err := a.Agent.HandleMessage(ctx, "catelyn", degradedMsg)
 	a.Switch.Reset()
 	if err != nil {
 		return Transcript{}, err
 	}
 	r.add(Step{
 		Actor: "catelyn", Action: "sends a message with both providers down",
+		Request:      map[string]any{"user_id": "catelyn", "message": degradedMsg},
 		Response:     map[string]any{"response": m4.Reply, "tier": m4.Tier, "degraded": m4.Degraded},
 		Demonstrates: "US5 tier 3 — keyword match over the vocabulary. Never a hang, never a fabrication",
 		Passed:       m4.Degraded && m4.Tier == 3,
@@ -490,7 +509,13 @@ func Run(ctx context.Context, a *app.App) (Transcript, error) {
 		}(),
 	})
 
-	t := Transcript{Steps: r.steps}
+	t := Transcript{
+		Vantage: "Run by an outside evaluator, not by anyone in the family. This " +
+			"endpoint drives all five members itself, so it shows what each one said. " +
+			"No member has this view: through /v1/message a member reaches only their " +
+			"own agent, and steps 5, 12 and 13 are where that boundary is tested.",
+		Steps: r.steps,
+	}
 	t.Summary.Of = len(r.steps)
 	for _, s := range r.steps {
 		if s.Passed {
