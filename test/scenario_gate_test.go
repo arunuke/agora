@@ -339,3 +339,80 @@ func TestOccasion_SeasonalRequestsSelectSeasonalTitles(t *testing.T) {
 		}
 	}
 }
+
+// Scenario 3, in full: "A asks to schedule a christmas movie marathon for the
+// group and select some movies and their streaming/screening choices."
+//
+// An occasion is a FILTER, not a nudge. As a weight it lost to whatever the
+// members already preferred, and a christmas request came back with autumn
+// films — accepted but not honoured.
+func TestScenario3_ChristmasMarathonSelectsOnlyChristmasTitles(t *testing.T) {
+	a := newScenarioApp(t)
+
+	cv, err := a.Arbiter.ConveneFor(ctx(), a.GroupID, "alice",
+		"schedule a christmas movie marathon for the family")
+	if err != nil {
+		t.Fatalf("convene: %v", err)
+	}
+	if len(cv.Slate) == 0 {
+		t.Fatal("empty christmas slate")
+	}
+
+	occasionOf := map[string]string{}
+	titles, err := a.Store.Titles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ti := range titles {
+		occasionOf[ti.Title] = ti.Occasion
+	}
+	for _, item := range cv.Slate {
+		if occasionOf[item.Title] != "christmas" {
+			t.Errorf("slate carries %q (occasion %q) for a christmas marathon",
+				item.Title, occasionOf[item.Title])
+		}
+		if strings.TrimSpace(item.Availability) == "" {
+			t.Errorf("%q has no screening choice", item.Title)
+		}
+	}
+
+	// The occasion came from the request, so it is speakable — but it must not
+	// have been counted toward the anonymity threshold to get there.
+	var sawChristmas bool
+	for _, c := range cv.PublicConstraints {
+		if strings.Contains(strings.ToLower(c), "christmas") {
+			sawChristmas = true
+		}
+	}
+	if !sawChristmas {
+		t.Errorf("the requested occasion should be speakable in %v", cv.PublicConstraints)
+	}
+}
+
+// A negated occasion is not a request for that occasion. Worth its own test:
+// the filter is a hard one, so reading "no christmas films" as christmas would
+// return exactly the wrong catalogue and nothing else.
+func TestOccasion_NegatedRequestDoesNotFilterToIt(t *testing.T) {
+	if got := arbiter.OccasionIn("please, no christmas films this time"); got != "" {
+		t.Errorf("negated request yielded occasion %q", got)
+	}
+	if got := arbiter.OccasionIn("schedule a christmas marathon"); got != "christmas" {
+		t.Errorf("plain request yielded occasion %q, want christmas", got)
+	}
+}
+
+// "nothing too long" is the ordinary way to ask for a shorter film. The soft
+// negation list matched "not " with a trailing space, so it never fired inside
+// "nothing" and the clause was read as a preference FOR long films.
+func TestExtraction_NothingTooLongIsANegation(t *testing.T) {
+	a := newScenarioApp(t)
+
+	if _, err := a.Agent.HandleMessage(ctx(), "cara", "I want a comedy, nothing too long"); err != nil {
+		t.Fatalf("HandleMessage: %v", err)
+	}
+	for _, c := range signalFor(t, a, "cara").Constraints {
+		if c.Dim == "runtime_max_min" && c.Value == "999" && c.Polarity == "prefer" {
+			t.Errorf("\"nothing too long\" derived a PREFERENCE for long films: %+v", c)
+		}
+	}
+}

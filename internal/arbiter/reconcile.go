@@ -28,6 +28,16 @@ type Reconciled struct {
 
 // Reconcile takes an UNORDERED BAG of signals with no identities attached.
 func Reconcile(signals []Signal, titles []store.Title, p AnonymityPolicy) Reconciled {
+	return ReconcileWith(signals, titles, p, nil)
+}
+
+// ReconcileWith adds constraints that came from the REQUEST rather than from
+// anyone's profile — the occasion in "schedule a christmas marathon".
+//
+// They are treated as public because that is what they are: the group asked for
+// them out loud. They never touch the tally, so they cannot help a private
+// constraint over the anonymity threshold.
+func ReconcileWith(signals []Signal, titles []store.Title, p AnonymityPolicy, requested []vocab.Constraint) Reconciled {
 	r := Reconciled{Scores: map[string]float64{}, SignalCount: len(signals)}
 
 	// --- vetoes: collected first, applied as a silent hard filter ---
@@ -92,6 +102,11 @@ func Reconcile(signals []Signal, titles []store.Title, p AnonymityPolicy) Reconc
 			r.Private = append(r.Private, t.Constraint)
 		}
 	}
+	// Requested constraints join the public set AFTER classification, so they
+	// are speakable in the justification without ever being counted toward k.
+	for _, c := range requested {
+		r.Public = append(r.Public, c)
+	}
 
 	// --- veto filter: silent, and BEFORE scoring or Loop B ---
 	for _, t := range titles {
@@ -99,6 +114,35 @@ func Reconcile(signals []Signal, titles []store.Title, p AnonymityPolicy) Reconc
 			continue
 		}
 		r.Candidates = append(r.Candidates, t)
+	}
+
+	// --- occasion filter: a season is a FILTER, not a preference ------------
+	//
+	// "Something christmassy" means only christmas films. As a weight it merely
+	// nudged, and a member with strong standing preferences got two autumn
+	// films and one christmas one — an answer that ignored the only thing they
+	// actually asked for.
+	//
+	// Deliberately driven by PUBLIC constraints only. A below-threshold
+	// occasion applied as a hard filter would make every title in the slate
+	// christmas, which tells the whole group that somebody asked for christmas
+	// — anonymity undone by inference rather than by quotation. Vetoes can
+	// afford to be silent filters because their evidence is an ABSENCE; an
+	// occasion filter's evidence is everything that remains.
+	//
+	// In the single-signal case — a member's own recommendations, scored under
+	// cloud parity — everything is public and their own request filters freely.
+	if wanted := occasionsIn(r.Public); len(wanted) > 0 {
+		var kept []store.Title
+		for _, t := range r.Candidates {
+			if t.Occasion != "" && wanted[t.Occasion] {
+				kept = append(kept, t)
+			}
+		}
+		// An empty result is reported as empty rather than silently widened: a
+		// christmas request answered with non-christmas films is a worse
+		// failure than one answered with "nothing matches".
+		r.Candidates = kept
 	}
 
 	// --- score using ALL constraints, public and private alike ---
@@ -131,6 +175,18 @@ func (r Reconciled) PublicPhrases() []string {
 	var out []string
 	for _, c := range r.Public {
 		out = append(out, c.Human())
+	}
+	return out
+}
+
+// occasionsIn collects requested seasons. Only Prefer counts: "not christmas"
+// is an exclusion to score against, never a filter to select by.
+func occasionsIn(cs []vocab.Constraint) map[string]bool {
+	out := map[string]bool{}
+	for _, c := range cs {
+		if c.Dim == vocab.DimOccasion && c.Polarity == vocab.Prefer {
+			out[c.Value] = true
+		}
 	}
 	return out
 }

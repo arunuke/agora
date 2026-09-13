@@ -134,7 +134,9 @@ func (s *Server) message(w http.ResponseWriter, r *http.Request) {
 func (s *Server) convene(w http.ResponseWriter, r *http.Request) {
 	var req messageReq
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	res, err := s.app.Arbiter.Convene(r.Context(), s.app.GroupID, req.UserID)
+	// The convene request is free text like any other message; only a
+	// closed-vocabulary occasion is taken from it. See Arbiter.ConveneFor.
+	res, err := s.app.Arbiter.ConveneFor(r.Context(), s.app.GroupID, req.UserID, req.Message)
 	if err != nil {
 		fail(w, 500, err)
 		return

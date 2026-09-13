@@ -91,6 +91,83 @@ The design insight is that these and reliability are the **same mechanism**. Mem
 
 A member's raw context is never present in any context window producing output shown to another member. **Not filtered out — never present.** A prompt-injection attempt cannot extract from Loop B what was never in it.
 
+### Why one process and one image still isolates
+
+Everything runs as a single `agora` process in a single image: Loop A, the
+reconciler and Loop B are Go packages calling each other's exported functions,
+with no network between them. The obvious objection is that a boundary inside
+one address space is not a boundary at all — two services with an authenticated
+API would look stricter.
+
+It is the other way round, and for a specific reason: **this boundary is checked
+by the compiler on every build. A network boundary is checked by a deployment
+you hope was configured correctly.** A misapplied security group or a forgotten
+authz check on an endpoint is invisible in the source and fails open at 3am; the
+equivalent mistake here does not build. What follows is what actually carries
+the guarantee, in the order an attacker would meet it.
+
+**1. The private zone is unreachable by language rule.** A member's raw text and
+profile vector live behind `internal/agent/internal/rawctx`. Go's visibility
+rule makes a package nested under `internal/` importable only from packages
+rooted at its parent — so only `internal/agent/...` can import it. The arbiter
+does not *choose* not to read raw context; it **cannot compile** a reference to
+it.
+
+**2. The arbiter is handed an interface, not the store.** `arbiter.New` takes
+`arbiter.Store` — eight methods: members, titles, events, convenes,
+notifications. `*store.Store` does export `DB()`, and raw SQL would bypass point
+1 entirely, but the arbiter's static type has no such method. The raw handle is
+reached in exactly one place in the codebase — `internal/agent/agent.go`, twice,
+both times passed straight into `rawctx.For(db, memberID)` — and a test fails
+the build if that ever escapes `internal/agent`. This is the rule the compiler
+cannot express, so it is asserted instead.
+
+**3. A scope cannot be widened.** `rawctx.For(db, memberID)` binds the member at
+construction and no method on `Scope` takes a member id at call time. Every
+statement carries `where member_id=?`. There is no API to point an open scope at
+somebody else.
+
+**4. What crosses the seam cannot carry a secret.** The only value passing from
+Loop A to the reconciler is an `arbiter.Signal`: closed-vocabulary constraints
+and vetoes, no identity, no free text. Isolation here is a property of the
+*type*, not of a filter that has to run correctly — a compromised member agent
+still cannot emit prose, because there is no field to put it in.
+
+**5. Reduction happens before the model, not in it.** The k-threshold runs in
+deterministic code; below-threshold constraints are gone before Loop B's prompt
+is built. The prompt also instructs the model to decline cross-member questions,
+and requests that reach for another member are refused in code before any model
+sees them — but neither is load-bearing. The model cannot leak what it was never
+shown.
+
+Two adversarial gates and two static invariants hold this in place: the isolation
+gate probes every ordered pair of members six ways and checks three leak modes;
+`TestInvariant_ArbiterStoreExposesNoRawContext` and
+`TestInvariant_RawSQLHandleIsReachedOnlyByTheAgent` fail the build on the two
+ways around the type system.
+
+#### What this does not claim
+
+Worth stating plainly, because a guarantee whose limits are unstated is a
+marketing claim:
+
+- **No memory isolation.** One address space means a memory-safety escape, an
+  `unsafe` block or a heap dump exposes everything. Separate processes would add
+  a boundary this design does not have and does not assert.
+- **The guarantee names the arbiter, not the universe.** Points 1 and 2 prove
+  *the arbiter* cannot reach raw context. Any package holding a concrete
+  `*store.Store` could query `profiles.raw_context` directly; that is why the
+  invariant test exists, and the invariant is the enforcement.
+- **One blast radius.** A bug in the HTTP layer reaches every component. A
+  service split would contain that; it would not improve isolation between the
+  two trust levels, which is what the property is about.
+
+A note on a tempting shortcut: *"only one package has write methods"* is not the
+indicator, and is not true here — the agent writes a member's raw context and
+derived profile through `rawctx`, the arbiter writes convenes and notifications.
+Isolation is about **read reach**, not write location. Which package can *see* a
+secret is the question; which one can change state is a different one.
+
 ### Anonymity is three layers, not one step
 
 | Layer | Where | Defeats | Conditional? |

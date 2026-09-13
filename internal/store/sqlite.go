@@ -57,6 +57,12 @@ type Convene struct {
 	Signals   []byte
 	Result    []byte
 	CreatedAt time.Time
+	// Occasion is a CLOSED-VOCABULARY value ("christmas"), never the sentence
+	// somebody typed. A scheduled convene fires hours later and must still know
+	// what it was for; storing the request verbatim would put free text in a
+	// group-visible row, which is the one thing this side of the boundary is
+	// built to never hold.
+	Occasion string
 }
 
 type Notification struct {
@@ -119,7 +125,8 @@ func (s *Store) migrate() error {
 			window_start text, window_end text)`,
 		`create table if not exists convenes(
 			convene_id text primary key, group_id text, state text, fire_at text,
-			signals text, result text, created_at text, requested_by text)`,
+			signals text, result text, created_at text, requested_by text,
+			occasion text not null default '')`,
 		`create table if not exists notifications(
 			id integer primary key autoincrement, member_id text, type text,
 			message text, data text, delivered integer not null default 0)`,
@@ -218,12 +225,12 @@ func (s *Store) SaveConvene(c Convene) error {
 	if c.FireAt != nil {
 		fireAt = c.FireAt.Format(time.RFC3339)
 	}
-	_, err := s.db.Exec(`insert into convenes(convene_id,group_id,state,fire_at,signals,result,created_at)
-		values(?,?,?,?,?,?,?)
+	_, err := s.db.Exec(`insert into convenes(convene_id,group_id,state,fire_at,signals,result,created_at,occasion)
+		values(?,?,?,?,?,?,?,?)
 		on conflict(convene_id) do update set state=excluded.state, fire_at=excluded.fire_at,
-		signals=excluded.signals, result=excluded.result`,
+		signals=excluded.signals, result=excluded.result, occasion=excluded.occasion`,
 		c.ConveneID, c.GroupID, c.State, fireAt, string(c.Signals), string(c.Result),
-		c.CreatedAt.Format(time.RFC3339))
+		c.CreatedAt.Format(time.RFC3339), c.Occasion)
 	return err
 }
 
@@ -231,9 +238,9 @@ func (s *Store) LoadConvene(id string) (Convene, error) {
 	var c Convene
 	var fireAt sql.NullString
 	var sig, res, created string
-	err := s.db.QueryRow(`select convene_id,group_id,state,fire_at,signals,result,created_at
+	err := s.db.QueryRow(`select convene_id,group_id,state,fire_at,signals,result,created_at,occasion
 		from convenes where convene_id=?`, id).
-		Scan(&c.ConveneID, &c.GroupID, &c.State, &fireAt, &sig, &res, &created)
+		Scan(&c.ConveneID, &c.GroupID, &c.State, &fireAt, &sig, &res, &created, &c.Occasion)
 	if err != nil {
 		return c, err
 	}

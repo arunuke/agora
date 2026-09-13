@@ -152,8 +152,11 @@ func Valid(d Dim, value string) bool { return Lookup(d, value) != nil }
 // applied, an exclude is a weight that can be outranked.
 var (
 	strongNegation = []string{"can't", "cannot", "cant", "never", "hate", "refuse", "absolutely not", "no way"}
-	softNegation   = []string{"not ", "no ", "don't", "dont", "avoid", "rather not", "dislike", "prefer not", "skip", "less "}
-	intensifiers   = []string{"really", "love", "adore", "always", "definitely", "very", "huge fan"}
+	// "nothing" earns its place: "nothing too long" is the ordinary way to say
+	// it, and "not " with its trailing space never matched inside that word, so
+	// the clause was read as a PREFERENCE for long films — the exact opposite.
+	softNegation = []string{"not ", "no ", "nothing", "don't", "dont", "avoid", "rather not", "dislike", "prefer not", "skip", "less "}
+	intensifiers = []string{"really", "love", "adore", "always", "definitely", "very", "huge fan"}
 )
 
 func HasStrongNegation(s string) bool { return containsAny(s, strongNegation) }

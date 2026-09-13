@@ -7,12 +7,14 @@ import (
 	"encoding/json"
 	"fmt"
 	mrand "math/rand"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/arunuke/agora/internal/clock"
 	"github.com/arunuke/agora/internal/llm"
 	"github.com/arunuke/agora/internal/store"
+	"github.com/arunuke/agora/internal/vocab"
 )
 
 // Convene workflow states. Each is persisted BEFORE the call that causes the
@@ -136,10 +138,27 @@ func (a *Arbiter) fanout(ctx context.Context, members []store.Member) ([]Signal,
 // --------------------------------------------------------------- convene ---
 
 func (a *Arbiter) Convene(ctx context.Context, groupID, requestedBy string) (ConveneResult, error) {
+	return a.ConveneFor(ctx, groupID, requestedBy, "")
+}
+
+// ConveneFor is Convene with the request the group actually made — "schedule a
+// christmas movie marathon".
+//
+// The sentence is reduced to a closed-vocabulary occasion HERE, at the edge,
+// and only the occasion travels any further. The arbiter is the group-visible
+// side of the boundary: a free-text field on a convene row would be readable by
+// every member, so the one thing that may cross is the same enum everything
+// else on this side is made of.
+//
+// Only the occasion dimension is read out of the request. Letting the requester
+// inject arbitrary constraints would let one member steer the group's slate
+// while their own profile stayed private — a preference nobody could see, and
+// nobody voted for.
+func (a *Arbiter) ConveneFor(ctx context.Context, groupID, requestedBy, request string) (ConveneResult, error) {
 	id := newID("cv")
 	c := store.Convene{
 		ConveneID: id, GroupID: groupID, State: StateCreated,
-		CreatedAt: a.clk.Now(),
+		CreatedAt: a.clk.Now(), Occasion: OccasionIn(request),
 	}
 	if err := a.checkpoint(c); err != nil {
 		return ConveneResult{}, err
@@ -147,14 +166,41 @@ func (a *Arbiter) Convene(ctx context.Context, groupID, requestedBy string) (Con
 	return a.run(ctx, c)
 }
 
+// OccasionIn extracts a season from a free-text request, or "" when there is
+// none. A negated occasion yields nothing: "no christmas films please" is not a
+// request for christmas films.
+func OccasionIn(request string) string {
+	if strings.TrimSpace(request) == "" {
+		return ""
+	}
+	for _, clause := range vocab.SplitClauses(request) {
+		if vocab.HasStrongNegation(clause) || vocab.HasSoftNegation(clause) {
+			continue
+		}
+		for _, t := range vocab.MatchTerms(clause) {
+			if t.Dim == vocab.DimOccasion {
+				return t.Value
+			}
+		}
+	}
+	return ""
+}
+
 // Schedule creates a durable workflow that fires when the simulated clock
 // passes fireAt. This is what makes a long-running workflow observable inside
 // a five-minute review.
 func (a *Arbiter) Schedule(groupID string, fireAt time.Time) (string, error) {
+	return a.ScheduleFor(groupID, fireAt, "")
+}
+
+// ScheduleFor is Schedule for a specific occasion. The occasion is persisted on
+// the convene row, so a marathon scheduled now still knows it is a christmas
+// one when it fires hours of simulated time later.
+func (a *Arbiter) ScheduleFor(groupID string, fireAt time.Time, request string) (string, error) {
 	id := newID("cv")
 	c := store.Convene{
 		ConveneID: id, GroupID: groupID, State: StateCreated,
-		FireAt: &fireAt, CreatedAt: a.clk.Now(),
+		FireAt: &fireAt, CreatedAt: a.clk.Now(), Occasion: OccasionIn(request),
 	}
 	return id, a.checkpoint(c)
 }
@@ -230,7 +276,13 @@ func (a *Arbiter) run(ctx context.Context, c store.Convene) (ConveneResult, erro
 		}
 	}
 
-	r := Reconcile(signals, titles, a.policy)
+	var requested []vocab.Constraint
+	if c.Occasion != "" {
+		requested = append(requested, vocab.Constraint{
+			Dim: vocab.DimOccasion, Value: c.Occasion, Polarity: vocab.Prefer, Weight: 1,
+		})
+	}
+	r := ReconcileWith(signals, titles, a.policy, requested)
 	c.State = StateReconciled
 	if err := a.checkpoint(c); err != nil {
 		return ConveneResult{}, err

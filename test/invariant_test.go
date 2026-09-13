@@ -1,6 +1,7 @@
 package test
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -99,4 +100,55 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(b)
+}
+
+// The raw SQL handle is the one way around the visibility rule.
+//
+// rawctx is unreachable from the arbiter because Go says so, and the arbiter
+// holds a narrow Store interface with no DB() on it — but *store.Store does
+// export DB(), and any package holding the concrete store could run
+// `select raw_context from profiles` directly. The compiler cannot object: the
+// call is legal Go.
+//
+// So the rule the compiler cannot express is asserted here instead: DB() is
+// called only from internal/agent, and only to construct a member scope.
+func TestInvariant_RawSQLHandleIsReachedOnlyByTheAgent(t *testing.T) {
+	root := filepath.Join("..", "internal")
+	var violations []string
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		// The store defines DB(); the agent is the sanctioned caller.
+		rel := filepath.ToSlash(path)
+		if strings.Contains(rel, "internal/store/") || strings.Contains(rel, "internal/agent/") {
+			return nil
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for i, line := range strings.Split(string(b), "\n") {
+			code := line
+			if j := strings.Index(code, "//"); j >= 0 {
+				code = code[:j] // a comment naming DB() is documentation, not access
+			}
+			if strings.Contains(code, ".DB()") {
+				violations = append(violations, rel+":"+itoa(i+1)+" "+strings.TrimSpace(line))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(violations) > 0 {
+		t.Errorf("the raw SQL handle escaped internal/agent — every member's raw "+
+			"context is one query away from these call sites:\n  %s",
+			strings.Join(violations, "\n  "))
+	}
 }
