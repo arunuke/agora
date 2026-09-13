@@ -8,7 +8,59 @@ the names they were written with — a record that renames itself is no longer a
 
 ---
 
-## Session 1 — 2026-09-08 — Requirements validation
+## Sessions and time spent
+
+| # | When | What | Time |
+|---|---|---|---|
+| 1 | 2026-09-05 → 09-07 | Initial documents, written by hand before any collaboration | *accounted separately* |
+| 2 | 2026-09-07 evening → 09-08 morning | Requirements validation, scope reduction, theme anchoring, rescoped design | ≥ 1 h 10 min |
+| 3 | 2026-09-12 afternoon | Refinement — removing growth, not adding features | ≥ 40 min |
+| 4 | 2026-09-12 evening → 09-13 | Deployment, provider chain, scenario gates, hardening | **3 h 25 min** |
+
+**How these were derived, and what they are worth.** Session 4 is measured: a
+conversation log of 1,297 timestamped entries covering 17:17 → 20:42 local,
+280 turns. Trimming the eight idle stretches over five minutes — the longest 24
+minutes — gives 2 h 48 min of engaged time; the 3 h 25 min figure keeps them,
+which is the honest number for elapsed effort.
+
+Sessions 2 and 3 have **no conversation log on this machine**, so their figures
+are floors recovered from git commits and file modification times, not
+durations. A file's timestamp records its last save and says nothing about the
+thinking before it. Both are certainly undercounts — session 2's floor covers a
+commit of 45 files including the entire Go implementation.
+
+So: **5 h 15 min is provable across sessions 2–4.** For the work to have
+exceeded an eight-hour window, the unlogged portions of sessions 2 and 3 would
+have to add more than 2 h 45 min beyond what their timestamps already show.
+
+---
+
+# Session 1 — 2026-09-05 → 09-07 — The initial documents
+
+*Time accounted separately by Arun — written by hand, before any collaboration.*
+
+Requirements, Design, Implementation, Build-and-Deploy, Guidelines, Rationale,
+FAQ and ClaudeDirections were written first and committed before Claude saw the
+project. They are the specification everything after this was measured against,
+and they are preserved unchanged in this folder — the rescoping in
+[Rescoped.md](Rescoped.md) is recorded as a delta against them rather than as
+an edit to them.
+
+That order is why this log can be read as a record at all: there is an original
+to compare to.
+
+---
+
+# Session 2 — 2026-09-07/08 — Requirements through rescoped design
+
+*≥ 1 h 10 min (floor: commits at 21:21 and 06:31, file writes 21:39 and
+05:41–06:29). No conversation log survives, so the real figure is higher.*
+
+The four rounds below ran as one working block. The topic sections that follow
+them — Requirements, Implementation, Design and Build & Deploy Tradeoffs —
+record decisions taken during it.
+
+## Round 1 — Requirements validation
 
 ### Task
 
@@ -73,7 +125,7 @@ One build produces the privacy demo, the partial-failure story, and the long-run
 
 ---
 
-## Session 2 — 2026-09-08 — Scope reduction round
+## Round 2 — Scope reduction
 
 ### Arun's proposals
 
@@ -94,7 +146,7 @@ On (4), noted that this is not the scope-reduction it appears to be from a priva
 **Pushed back on (3), and Arun agreed to the reverse cut.**
 
 gRPC-only removes fewer components than it appears to:
-- Browsers cannot speak gRPC natively, so a web page needs grpc-web plus an Envoy proxy — a component added, not removed. This would have cost the web surface agreed in Session 1.
+- Browsers cannot speak gRPC natively, so a web page needs grpc-web plus an Envoy proxy — a component added, not removed. This would have cost the web surface agreed in Round 1.
 - It puts a `grpcurl` install, server reflection, and service/method discovery on the reviewer's path, against an assignment that cannot accept submissions requiring local installation.
 - `Implementation.md` had already reasoned this out: *"Using grpcurl could have unified a singular interface... but not considered since it adds additional complexity to the client."*
 
@@ -128,7 +180,7 @@ After: 1 binary, 2 packages, 2 interfaces, SQLite, seeded JSON catalog, 1 contai
 
 ---
 
-## Session 3 — 2026-09-08 — Anchoring the theme on workflow pain
+## Round 3 — Anchoring the theme on workflow pain
 
 ### Arun's direction
 
@@ -161,7 +213,7 @@ The framing produced a much sharper answer to *"what could a single LLM call wit
 
 ---
 
-## Session 4 — 2026-09-08 — Document split and rescoped design
+## Round 4 — Document split and rescoped design
 
 `Requirements.md` restored to its original pre-review form so the delta is legible. Rescoped content moved to `Requirements_Rescoped.md`. New `Design_Rescoped.md` written against the agreed constraints; `Design.md` left untouched as the record of the original design.
 
@@ -292,11 +344,11 @@ Tests were a two-line note in the original. They are now the centre of the imple
 
 Sequenced so the riskiest and most differentiating work happens while there is time to react. Two deliberate orderings: `llm.Deterministic` is built **before** the live provider, so the system is testable from the first hour; and **both gates are written before Loop B**, because they are the specification. Writing them last means discovering at hour seven that the claim was never true.
 
-## I11 — The web UI, cut (reversal of a Session 1 decision)
+## I11 — The web UI, cut (reversal of a Round 1 decision)
 
-Arun challenged the page directly: *is curl not adequate, and what does the UI provide beyond better UX?* Claude had recommended a minimal page in Session 1 and **reversed that recommendation.** Two arguments, one of which Claude should have made the first time.
+Arun challenged the page directly: *is curl not adequate, and what does the UI provide beyond better UX?* Claude had recommended a minimal page in Round 1 and **reversed that recommendation.** Two arguments, one of which Claude should have made the first time.
 
-1. **The required video already does the UI's job.** The page's distinctive value was making coordination legible at a glance. A ~5 minute video is a *mandatory deliverable* and is precisely the medium for that, so the UI's unique contribution was largely duplicated by something that must be produced anyway. This was available in Session 1 and was missed.
+1. **The required video already does the UI's job.** The page's distinctive value was making coordination legible at a glance. A ~5 minute video is a *mandatory deliverable* and is precisely the medium for that, so the UI's unique contribution was largely duplicated by something that must be produced anyway. This was available in Round 1 and was missed.
 2. **For an isolation claim, raw JSON is more credible than a rendered page.** This is the argument Claude had not made. A UI showing "no leak" is *weaker* evidence than `curl` showing no leak, because the page is a layer that could be filtering client-side. A reviewer auditing a privacy guarantee trusts the wire, not our HTML. **The page would have undercut the exact claim it was meant to showcase.**
 
 Plus Arun's own framing: a second test surface and an independent failure mode — asset serving, client state, JS — for no distinct gain.
@@ -463,7 +515,9 @@ Two defects found by tests rather than by reading code. In both cases the test t
 
 ---
 
-# Refinement — 2026-09-12
+# Session 3 — 2026-09-12 — Refinement
+
+*≥ 40 min (floor: file writes 14:28–15:08). No conversation log survives.*
 
 A pass whose only goal was to remove, not add. Recorded separately because the
 growth being undone was Claude's: each new problem got a new target instead of
@@ -578,7 +632,10 @@ the run verifies what the container is actually doing rather than what the flags
 implied it would do.
 
 
-# Session 4 — 2026-09-12/13: what manual testing caught that the suite did not
+# Session 4 — 2026-09-12/13 — Deployment, hardening, and what manual testing caught
+
+*3 h 25 min measured (17:17 → 20:42 local, 280 turns; 2 h 48 min with idle time
+trimmed).*
 
 The suite was green for every single issue in this section. 43 tests, two
 adversarial gates, a 16-step walkthrough, `make pipeline` exiting 0 — all of it
