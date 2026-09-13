@@ -24,6 +24,7 @@ what you came for.
 | 04 | [Build-and-Deploy](docs/04_Build-and-Deploy.md) | Build targets, test modes, and the four use cases the scenario gate automates | Arun |
 | 05 | [ClaudeDirections](docs/05_ClaudeDirections.md) | The instructions Claude was given — the brief behind everything below | Arun |
 | 06 | [Rescoped](docs/06_Rescoped.md) | What was actually built, as a delta against 01–04. Every removal names its production successor | **Claude** |
+| 07 | [Mechanisms](docs/07_Mechanisms.md) | How the k-threshold, vetoes, degradation ladder and provider chain actually work, with diagrams | **Claude** |
 
 Three more sit outside the sequence, read at need rather than in order:
 
@@ -260,25 +261,31 @@ The design insight is that these and reliability are the **same mechanism**. Mem
 
 ### Two loops, split by trust level
 
-```
-        ┌──────────── private trust level ────────────┐
-        │  Loop A ×N, one per member, in parallel     │
-        │  sees: ONE member's raw context             │
-        │  emits: a sealed signal (enums, no text)    │
-        └──────────────────┬──────────────────────────┘
-                           │  signals, identity stripped
-        ┌──────────────────▼──────────────────────────┐
-        │  Reconciler — deterministic, no LLM         │
-        │  veto filter · k-threshold · scoring        │
-        └──────────────────┬──────────────────────────┘
-                           │  candidates + public constraints only
-        ┌──────────────────▼──────────────────────────┐
-        │  Loop B ×1, group trust level               │
-        │  sees: NO member context, ever              │
-        └─────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph PRIVATE["PRIVATE trust level — one instance per member, in parallel"]
+        LA1["Loop A · Arya<br/>sees: Arya's raw context<br/>and nothing else"]
+        LA2["Loop A · Bran<br/>sees: Bran's raw context<br/>and nothing else"]
+        LA3["Loop A · …<br/>one per member"]
+    end
+    LA1 -->|"sealed signal"| REC
+    LA2 -->|"sealed signal"| REC
+    LA3 -->|"sealed signal"| REC
+    REC["RECONCILER — deterministic, no model call<br/>veto filter · k-threshold · scoring"]
+    REC -->|"candidates + PUBLIC constraints only"| LB
+    subgraph GROUP["GROUP trust level"]
+        LB["Loop B · one instance<br/>sees: no member context, ever"]
+    end
+    LB --> OUT["Slate + justification<br/>shown to everyone"]
 ```
 
-A member's raw context is never present in any context window producing output shown to another member. **Not filtered out — never present.** A prompt-injection attempt cannot extract from Loop B what was never in it.
+A **sealed signal** is closed-vocabulary constraints and vetoes: no identity, no
+free text, no field prose could travel in. That is the whole crossing, and it is
+enforced by the type rather than by a filter that has to run correctly.
+
+A member's raw context is never present in any context window producing output
+shown to another member. **Not filtered out — never present.** A prompt-injection
+attempt cannot extract from Loop B what was never in it.
 
 ### Why one process and one image still isolates
 
@@ -335,6 +342,23 @@ gate probes every ordered pair of members six ways and checks three leak modes;
 `TestInvariant_RawSQLHandleIsReachedOnlyByTheAgent` fail the build on the two
 ways around the type system.
 
+```mermaid
+flowchart LR
+    subgraph AGENT["internal/agent/**  — the only importer"]
+        SCOPE["rawctx.Scope<br/>member id bound at construction<br/>every query says where member_id = ?"]
+    end
+    RAW[("profiles.raw_context<br/>the secret")]
+    SCOPE --> RAW
+    ARB["internal/arbiter<br/>holds arbiter.Store: 8 methods,<br/>no DB(), no raw-context accessor"]
+    ARB -. "import rawctx<br/>COMPILE ERROR — Go visibility" .-> SCOPE
+    ARB -. "raw SQL via DB()<br/>NOT ON ITS INTERFACE<br/>and a test fails the build" .-> RAW
+    ARB --> CONV["convenes, notifications,<br/>titles, members"]
+```
+
+Two arrows the arbiter cannot follow, blocked by two different mechanisms: the
+first by the language, the second by an invariant test, because the language
+cannot express it.
+
 #### What this does not claim
 
 Worth stating plainly, because a guarantee whose limits are unstated is a
@@ -357,84 +381,13 @@ derived profile through `rawctx`, the arbiter writes convenes and notifications.
 Isolation is about **read reach**, not write location. Which package can *see* a
 secret is the question; which one can change state is a different one.
 
-### Anonymity is three layers, not one step
+---
 
-| Layer | Where | Defeats | Conditional? |
-|---|---|---|---|
-| 1. Content de-identification | Loop A, at emission | verbatim & paraphrase leak | unconditional |
-| 2. Identity stripping | fan-out boundary | direct attribution | unconditional |
-| 3. `k`-threshold | reconciler | **inference from rarity** | uses `k` |
+The four mechanisms underneath this argument — the k-threshold, vetoes, the
+degradation ladder and the provider chain — are in
+[docs/07_Mechanisms.md](docs/07_Mechanisms.md), each with a diagram.
 
-Layer 3 is the subtle one. Stripping a name does not stop a member reasoning *"the slate mentions Korean horror, I didn't ask for it, and I know the others — that's Arya."* Rarity does the identifying.
-
-**`k` is the domain-translation knob**, not a magic number: `k=1` reproduces the cloud case, `k=2` is the family, `k=n` is total anonymity. `AGORA_K=1 make test` runs the whole suite at `k=1`, and `AGORA_K=1 make pipeline` does it through the deployed container, so the anonymity descope seam is verified continuously.
-
-### Vetoes
-
-A veto is held by one member, so it is permanently below threshold and can never be spoken — yet must be honoured absolutely. Vetoed titles are removed **before Loop B is given the candidate set**: enforcement total, explanation impossible. The strongest guarantee in the system comes from what we decline to put in front of the model.
-
-### Degradation is a ladder, not a switch
-
-| Tier | Mechanism | Available when |
-|---|---|---|
-| 1 | LLM extraction — negation, idiom, nuance | normal |
-| 2 | embed the phrase, nearest-neighbour against the vocabulary | completions down, embeddings up |
-| 3 | keyword match over the vocabulary | both down |
-
-`LLMClient` and `Embedder` are separate interfaces because the endpoints fail independently. If `sqlite-vec` fails to load at startup the process boots anyway, logs it, and simply never offers tier 2.
-
-### Providers — two implementations, one chain
-
-Selection is a chain, and every outcome is logged and served on `/healthz`, so
-"is this actually talking to a model?" is answerable from outside the process.
-
-| Rung | Condition | Provider |
-|---|---|---|
-| 1 | `AGORA_LLM_BASE` set, or a local model answering on `:11434` | that OpenAI-compatible endpoint |
-| 2 | `ANTHROPIC_API_KEY` set | Anthropic Messages API |
-| 3 | neither | deterministic extractor, stated loudly |
-
-One image then behaves correctly in both places it runs, with no per-environment
-configuration: a developer box ships neither a model nor a key and lands on the
-simulated path, spending nothing; the deployed host has a key and no local
-model, so it lands on Anthropic without being told to.
-
-`AGORA_LLM_PREFER` pins a rung — `ollama`, `anthropic`, or `simulated`. **A
-pinned provider that cannot be used does not walk down the chain.** It logs
-loudly and serves the extractor, because falling from "I demanded Ollama" to "I
-quietly billed you for Anthropic" is the failure this exists to prevent.
-
-The local `make` targets hand the container **neither a model nor a key**, so
-the default costs nothing and needs nothing — and that holds even if your shell
-exports `ANTHROPIC_API_KEY`.
-
-```bash
-make pipeline                             # simulated: free, fast, the default
-make pipeline AGORA_LLM_PREFER=ollama     # a real local model (run make ollama-setup first)
-make pipeline AGORA_LLM_PREFER=anthropic  # the paid path, for a pre-deploy check
-```
-
-`pipeline` asserts the container is running the provider *and* the anonymity
-policy it was asked for, both via `/healthz`. For a local model it also runs
-`curl` from *inside* the container against the host, because `/healthz` reports
-what was configured and that is necessary but not sufficient — Ollama binds
-`127.0.0.1` by default, which no container can route to.
-
-```bash
-make ollama-setup                         # installs, pulls a small model, serves it
-make pipeline AGORA_LLM_PREFER=ollama
-
-# any OpenAI-compatible provider (Groq, OpenRouter, Together, OpenAI)
-AGORA_LLM_BASE=https://api.groq.com/openai/v1 AGORA_LLM_KEY=gsk_... make run
-```
-
-One `Compat` implementation covers Ollama, Groq, OpenRouter, Together and
-OpenAI because they share the `/v1/chat/completions` shape. It reuses the same
-prompts as the Anthropic client — the Loop B prompt carries the isolation
-instructions, and a second copy would be a second place for those to drift.
-The model name is optional: with none configured the client asks the provider
-what it has, because local model names are user-chosen and guessing is never
-right.
+---
 
 ## Tests
 
