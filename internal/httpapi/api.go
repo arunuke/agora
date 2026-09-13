@@ -11,12 +11,15 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/arunuke/agora/internal/app"
 	"github.com/arunuke/agora/internal/demo"
+	"github.com/arunuke/agora/internal/store"
 )
 
 type Server struct {
@@ -29,6 +32,7 @@ func New(a *app.App) http.Handler {
 	mux.HandleFunc("GET /", s.usage)
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("GET /v1/members", s.members)
+	mux.HandleFunc("POST /v1/members", s.addMember)
 	mux.HandleFunc("POST /v1/message", s.message)
 	mux.HandleFunc("POST /v1/convene", s.convene)
 	mux.HandleFunc("POST /v1/demo/reset", s.reset)
@@ -90,6 +94,85 @@ func (s *Server) members(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"group_id": s.app.GroupID, "members": ms})
+}
+
+type addMemberReq struct {
+	MemberID    string   `json:"member_id"`
+	DisplayName string   `json:"display_name"`
+	RawContext  []string `json:"raw_context,omitempty"`
+}
+
+// addMember joins someone to the group at runtime.
+//
+// Worth having for a demo specifically: a reviewer can add themselves, state a
+// preference nobody else holds, and then try to read it from another member's
+// session. A canary they chose themselves is a stronger demonstration than one
+// that shipped in the seed file, which can always be waved away as a fixture.
+//
+// The new member is ordinary in every respect — same scoped accessor, same
+// sealed signals, same k-threshold. Nothing here is a demo-only path, which is
+// the point: a privacy claim demonstrated through a special code path proves
+// something about that path and nothing about the system.
+func (s *Server) addMember(w http.ResponseWriter, r *http.Request) {
+	var req addMemberReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		fail(w, 400, err)
+		return
+	}
+	req.MemberID = strings.ToLower(strings.TrimSpace(req.MemberID))
+	req.DisplayName = strings.TrimSpace(req.DisplayName)
+	if req.MemberID == "" || req.DisplayName == "" {
+		fail(w, 400, fmt.Errorf("member_id and display_name are required"))
+		return
+	}
+	if !memberIDOK(req.MemberID) {
+		fail(w, 400, fmt.Errorf("member_id must be 2-32 characters of a-z, 0-9, _ or -"))
+		return
+	}
+	// A display name is matched against every incoming message to decide
+	// whether someone is asking about another member. A one-letter or
+	// dictionary-word name would turn ordinary sentences into refusals, so the
+	// floor is enforced here rather than discovered later as "the assistant
+	// stopped answering me".
+	if len([]rune(req.DisplayName)) < 2 {
+		fail(w, 400, fmt.Errorf("display_name must be at least 2 characters"))
+		return
+	}
+
+	err := s.app.Store.AddMember(s.app.GroupID, req.MemberID, req.DisplayName, req.RawContext)
+	if errors.Is(err, store.ErrMemberExists) {
+		fail(w, 409, fmt.Errorf("member %q already exists", req.MemberID))
+		return
+	}
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+
+	ms, err := s.app.Store.Members(s.app.GroupID)
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	writeJSON(w, 201, map[string]any{
+		"member_id": req.MemberID, "display_name": req.DisplayName,
+		"group_id": s.app.GroupID, "members": len(ms),
+		// Said plainly, because a reviewer who adds themselves and then runs the
+		// walkthrough would otherwise think the join silently failed.
+		"note": "POST /v1/demo/reset re-seeds the group and removes members added at runtime",
+	})
+}
+
+func memberIDOK(id string) bool {
+	if n := len(id); n < 2 || n > 32 {
+		return false
+	}
+	for _, c := range id {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' && c != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 type messageReq struct {
@@ -236,6 +319,14 @@ FASTEST PATH — the whole demo in one request:
 POKE AT IT YOURSELF:
 
   curl -s $HOST/v1/members | jq
+
+  # join the group yourself, with a secret nobody else holds
+  curl -sX POST $HOST/v1/members -H 'content-type: application/json' \
+    -d '{"member_id":"you","display_name":"You",
+         "raw_context":["I love horror","My guilty pleasure is competitive dog grooming"]}' | jq
+
+  Then ask another member about it — the strongest version of the isolation
+  claim is the one you set up yourself. (POST /v1/demo/reset removes them.)
 
   curl -sX POST $HOST/v1/message -H 'content-type: application/json' \
     -d '{"user_id":"arya","message":"I love nineties science fiction"}' | jq

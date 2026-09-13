@@ -9,6 +9,8 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -214,6 +216,56 @@ func (s *Store) Member(id string) (Member, error) {
 		`select member_id, display_name, group_id from members where member_id=?`, id).
 		Scan(&m.MemberID, &m.DisplayName, &m.GroupID)
 	return m, err
+}
+
+// ErrMemberExists is returned rather than overwriting. A join that silently
+// replaced an existing member would discard their raw context — the one thing
+// in this system that cannot be reconstructed.
+var ErrMemberExists = errors.New("store: member already exists")
+
+// AddMember joins a member to a group at runtime, with the same two rows the
+// seeder writes: the member, and an EMPTY profile.
+//
+// The empty profile is not a detail. rawctx.Load reports ErrNoProfile when the
+// row is missing, so a member created without one exists to the group and fails
+// on their first message — visible only as a broken new joiner. Both rows are
+// written in one transaction so that state cannot exist at all.
+//
+// Raw context is accepted here because a joiner may arrive with preferences
+// already stated. It is the ONLY write of raw context outside the agent's
+// scoped accessor, and it is confined to creation: there is no update path, so
+// this cannot be used to reach an existing member's context.
+func (s *Store) AddMember(groupID, memberID, displayName string, rawContext []string) error {
+	if _, err := s.Member(memberID); err == nil {
+		return ErrMemberExists
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.Exec(
+		`insert into members(member_id,display_name,group_id) values(?,?,?)`,
+		memberID, displayName, groupID); err != nil {
+		return err
+	}
+	if rawContext == nil {
+		rawContext = []string{}
+	}
+	raw, err := json.Marshal(rawContext)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`insert into profiles(member_id,raw_context,derived,updated_at) values(?,?,'{}',?)`,
+		memberID, string(raw), time.Now().UTC().Format(time.RFC3339)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) Titles() ([]Title, error) {
