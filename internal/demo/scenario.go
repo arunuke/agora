@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/arunuke/agora/internal/app"
+	"github.com/arunuke/agora/internal/arbiter"
 	"github.com/arunuke/agora/internal/vocab"
 )
 
@@ -298,6 +299,133 @@ func Run(ctx context.Context, a *app.App) (Transcript, error) {
 		Demonstrates: "US6 — a durable long-running workflow, made observable inside a " +
 			"five-minute review. Notifications piggyback the next response",
 		Passed: len(before) == 0 && len(after) >= 1 && len(notes) > 0,
+	})
+
+	// ---- the Build-and-Deploy scenarios, run against the deployed artifact --
+	//
+	// These four were covered by the Go suite first. They are here because the
+	// suite proves them to whoever runs `go test`, and this transcript proves
+	// them to whoever runs the container — which is the path the README sends a
+	// reviewer down.
+
+	// ---- refusing to discuss another member (doc scenario 2) --------------
+	refusal, err := a.Agent.HandleMessage(ctx, "bran", "What are Arya's preferences?")
+	if err != nil {
+		return Transcript{}, err
+	}
+	r.add(Step{
+		Actor: "bran", Action: "asks outright what another member prefers",
+		Request:  map[string]any{"message": "What are Arya's preferences?"},
+		Response: map[string]any{"reply": refusal.Reply},
+		Demonstrates: "The system SAYS it cannot, rather than answering around it. " +
+			"Produced in code before the text is stored, extracted, or shown to a model — " +
+			"the prompt asks for this too, and a small local model ignored it",
+		Passed: strings.Contains(refusal.Reply, "can't do that") && len(refusal.Suggestions) == 0,
+	})
+
+	// ---- refusing to COPY another member (doc scenario 4) -----------------
+	//
+	// The interesting one. Scenario 2 asks to SEE another member's data; this
+	// asks the system to ACT on it, which would leak by inference rather than by
+	// quotation — a slate built from Arya's profile discloses Arya's profile
+	// without containing a word of hers. No canary check could catch it, so the
+	// assertion is on the derived signal.
+	match, err := a.Agent.HandleMessage(ctx, "eddard", "Just match me with whatever Arya likes")
+	if err != nil {
+		return Transcript{}, err
+	}
+	aryaSig, err := a.Agent.Consult(ctx, arbiter.ConsultRequest{MemberID: "arya", Purpose: "demo"})
+	if err != nil {
+		return Transcript{}, err
+	}
+	eddardSig, err := a.Agent.Consult(ctx, arbiter.ConsultRequest{MemberID: "eddard", Purpose: "demo"})
+	if err != nil {
+		return Transcript{}, err
+	}
+	held := map[string]bool{}
+	for _, c := range eddardSig.Signal.Constraints {
+		held[c.Key()] = true
+	}
+	copied := ""
+	for _, c := range aryaSig.Signal.Constraints {
+		if held[c.Key()] {
+			copied = c.Key()
+			break
+		}
+	}
+	r.add(Step{
+		Actor: "eddard", Action: "asks to be matched with another member",
+		Request:  map[string]any{"message": "Just match me with whatever Arya likes"},
+		Response: map[string]any{"reply": match.Reply, "constraint_copied_from_arya": copied},
+		Demonstrates: "US4 — honouring this literally would copy one member's profile " +
+			"onto another, and every later answer would disclose it without quoting it",
+		Passed: strings.Contains(match.Reply, "can't do that") && copied == "",
+		Detail: copied,
+	})
+
+	// ---- a christmas marathon (doc scenario 3) ----------------------------
+	xmas, err := a.Arbiter.ConveneFor(ctx, a.GroupID, "arya",
+		"schedule a christmas movie marathon for the family")
+	if err != nil {
+		return Transcript{}, err
+	}
+	titles, err := a.Store.Titles()
+	if err != nil {
+		return Transcript{}, err
+	}
+	occasionOf := map[string]string{}
+	for _, ti := range titles {
+		occasionOf[ti.Title] = ti.Occasion
+	}
+	offSeason, noScreening := "", ""
+	picks := make([]map[string]any, 0, len(xmas.Slate))
+	for _, item := range xmas.Slate {
+		if occasionOf[item.Title] != "christmas" && offSeason == "" {
+			offSeason = item.Title
+		}
+		if strings.TrimSpace(item.Availability) == "" && noScreening == "" {
+			noScreening = item.Title
+		}
+		picks = append(picks, map[string]any{
+			"title": item.Title, "availability": item.Availability, "runtime": item.Runtime,
+		})
+	}
+	r.add(Step{
+		Actor: "arya", Action: "convenes a christmas movie marathon",
+		Request:  map[string]any{"message": "schedule a christmas movie marathon for the family"},
+		Response: map[string]any{"slate": picks, "public_constraints": xmas.PublicConstraints},
+		Demonstrates: "US3 with an occasion — a season is a FILTER, not a nudge, and every " +
+			"pick carries its screening choice. The occasion came from the REQUEST, so it is " +
+			"speakable without ever being counted toward the anonymity threshold",
+		Passed: len(xmas.Slate) > 0 && offSeason == "" && noScreening == "",
+		Detail: strings.TrimSpace(offSeason + " " + noScreening),
+	})
+
+	// ---- a seasonal request from one member -------------------------------
+	seasonal, err := a.Agent.HandleMessage(ctx, "catelyn", "put on something for halloween")
+	if err != nil {
+		return Transcript{}, err
+	}
+	wrongSeason := ""
+	for _, sug := range seasonal.Suggestions {
+		name := sug
+		if i := strings.Index(name, " ("); i > 0 {
+			name = name[:i]
+		}
+		if occasionOf[name] != "halloween" {
+			wrongSeason = sug
+			break
+		}
+	}
+	r.add(Step{
+		Actor: "catelyn", Action: "asks for something seasonal",
+		Request:  map[string]any{"message": "put on something for halloween"},
+		Response: map[string]any{"suggestions": seasonal.Suggestions},
+		Demonstrates: "Extraction is bound to a CLOSED vocabulary on purpose, so a season " +
+			"only works once it is a dimension. This was never a model limitation — no " +
+			"provider could map a word the vocabulary did not contain",
+		Passed: len(seasonal.Suggestions) > 0 && wrongSeason == "",
+		Detail: wrongSeason,
 	})
 
 	t := Transcript{Steps: r.steps}

@@ -146,7 +146,46 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("migrate: %w (%s)", err, q)
 		}
 	}
+
+	// Columns added after a release shipped.
+	//
+	// `create table if not exists` leaves an EXISTING table exactly as it was,
+	// so a database created by an older build keeps the old shape and the first
+	// insert fails with "table titles has no column named occasion".
+	//
+	// This is invisible locally — `make pipeline` runs `docker compose down -v`
+	// and starts from an empty volume every time — and unavoidable on a deployed
+	// host, which reuses its volume across deploys. The local signal that would
+	// have caught it does not exist, so the migration has to be deliberate.
+	for _, m := range []struct{ table, column, ddl string }{
+		{"titles", "occasion", `alter table titles add column occasion text not null default ''`},
+		{"convenes", "occasion", `alter table convenes add column occasion text not null default ''`},
+	} {
+		has, err := s.hasColumn(m.table, m.column)
+		if err != nil {
+			return fmt.Errorf("migrate: inspecting %s: %w", m.table, err)
+		}
+		if has {
+			continue
+		}
+		if _, err := s.db.Exec(m.ddl); err != nil {
+			return fmt.Errorf("migrate: %w (%s)", err, m.ddl)
+		}
+	}
 	return nil
+}
+
+// hasColumn reports whether a table already carries a column. Checked rather
+// than relying on the error text of a failed ALTER: "duplicate column name" is
+// a message, not an API, and swallowing errors by string match hides the real
+// ones.
+func (s *Store) hasColumn(table, column string) (bool, error) {
+	rows, err := s.db.Query(`select 1 from pragma_table_info(?) where name=?`, table, column)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	return rows.Next(), rows.Err()
 }
 
 // ---------- members & catalog ----------

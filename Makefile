@@ -26,6 +26,16 @@ DEPLOY_KEY   ?=
 # the host it is about to deploy to.
 PLATFORM     ?= linux/amd64
 HOST_PORT    ?= 8080
+# The port published ON THE DEPLOYED HOST. Separate from HOST_PORT because the
+# two are constrained by different things: locally by what is free on your
+# laptop, remotely by what the security group actually allows inbound. A group
+# that permits 80/22/443 makes 8080 unreachable no matter how healthy the
+# container is — and the symptom (a connect timeout) looks exactly like an
+# application fault from the outside.
+#
+# The CONTAINER still listens on 8080; only the published port moves, and the
+# privileged bind on 80 is done by dockerd, not by anything in the image.
+DEPLOY_PORT  ?= $(HOST_PORT)
 AGORA_K      ?= 2
 # Provider for containerised runs. The binary walks a chain — local model, then
 # ANTHROPIC_API_KEY, then the deterministic extractor — and these targets decide
@@ -148,6 +158,33 @@ package: test ## Build the image. Cross-build with: make package PLATFORM=linux/
 	@if [ -n "$(strip $(PLATFORM))" ]; then \
 	  echo "building for $(PLATFORM)"; docker build --platform $(PLATFORM) -t $(IMAGE_NAME) .; \
 	else docker build -t $(IMAGE_NAME) .; fi
+
+## package-linux is what deploy-host builds through, and it exists for one
+## reason: a deploy must never ship the developer's own architecture.
+##
+## `package` honours PLATFORM and builds for the host's architecture when it is
+## empty — right for a local pipeline, wrong for a deploy. On an Apple-silicon
+## laptop that silently produces a darwin-built arm64 image which loads happily
+## on an x86_64 host and then dies with "exec format error", a failure that
+## appears only after a 40MB transfer and reads like a broken application.
+##
+## preflight-host already WARNS when PLATFORM does not match the remote
+## architecture. This refuses outright when it is not a linux platform at all,
+## because at that point nothing about the image could be correct.
+.PHONY: package-linux
+package-linux: ## @internal Build the deployable image, refusing a non-linux PLATFORM
+	@case "$(strip $(PLATFORM))" in \
+	  linux/*) ;; \
+	  "") echo "FAIL: PLATFORM is empty, so the image would be built for this"; \
+	      echo "      machine's architecture. Set it to the host's:"; \
+	      echo "        make deploy-host DEPLOY_HOST=$(DEPLOY_HOST) PLATFORM=linux/amd64"; \
+	      exit 1 ;; \
+	  *)  echo "FAIL: PLATFORM=$(PLATFORM) is not a linux platform. The image"; \
+	      echo "      would load on the host and die with 'exec format error'."; \
+	      echo "      Use linux/amd64 (t2/t3/t5, most x86 VPS) or linux/arm64 (Graviton)."; \
+	      exit 1 ;; \
+	esac
+	@$(MAKE) --no-print-directory package PLATFORM=$(PLATFORM)
 
 ## push is deliberately separate and opt-in. Folding it into `package` would
 ## make the common path — and therefore `pipeline` — fail for anyone without
@@ -428,7 +465,7 @@ check-key: ## @internal Validate DEPLOY_KEY (path, permissions, and that it is n
 ## choose to run. It is idempotent and safe to re-run.
 ##
 ## It cannot help with the two things that genuinely need you: your own SSH key,
-## and an inbound rule for $(HOST_PORT) in the security group.
+## and an inbound rule for $(DEPLOY_PORT) in the security group.
 .PHONY: bootstrap-host
 bootstrap-host: check-key ## Install Docker + Compose v2 on the host (Usage: make bootstrap-host DEPLOY_HOST=<ip-or-dns>)
 	@if [ -z "$(DEPLOY_HOST)" ]; then echo "Error: DEPLOY_HOST is required."; exit 1; fi
@@ -473,10 +510,27 @@ preflight-host: check-key ## Check the remote host is ready (Usage: make preflig
 .PHONY: deploy-host
 deploy-host: preflight-host package-linux ## Deploy to any SSH-reachable host and verify (Usage: make deploy-host DEPLOY_HOST=<ip-or-dns>)
 	@if [ -z "$(DEPLOY_HOST)" ]; then echo "Error: DEPLOY_HOST is required. Run: make deploy-host DEPLOY_HOST=<ip>"; exit 1; fi
-	@echo "Streaming image to $(DEPLOY_USER)@$(DEPLOY_HOST)..."
-	docker save $(IMAGE_NAME) | gzip | $(SSH) -C $(DEPLOY_USER)@$(DEPLOY_HOST) "docker load"
 	@echo "Copying docker-compose.yml..."
 	$(SCP) docker-compose.yml $(DEPLOY_USER)@$(DEPLOY_HOST):~/docker-compose.yml
+	@# Tear the previous deploy down BEFORE the new image lands, not after.
+	@#
+	@# `docker compose up` on a running stack recreates the container but KEEPS
+	@# the named volume, so the new binary opens a database written by the old
+	@# one. That upgrade path is handled (see the column migration in
+	@# store.Open) but it is not the path anyone intends when they redeploy, and
+	@# it is not the one the local pipeline ever exercises — `make pipeline`
+	@# starts from an empty volume every run. Deploying onto a clean host makes
+	@# the deployed artifact behave like the tested one.
+	@#
+	@# -v discards the volume deliberately: the app re-seeds unconditionally on
+	@# startup, so there is no state here that surviving a deploy would save.
+	@echo "Removing the previous deploy (container, network and volume)..."
+	@$(SSH) $(DEPLOY_USER)@$(DEPLOY_HOST) \
+	  'docker compose down -v --remove-orphans 2>/dev/null || true; \
+	   docker rm -f agora >/dev/null 2>&1 || true; \
+	   echo "  host is clean"'
+	@echo "Streaming image to $(DEPLOY_USER)@$(DEPLOY_HOST)..."
+	docker save $(IMAGE_NAME) | gzip | $(SSH) -C $(DEPLOY_USER)@$(DEPLOY_HOST) "docker load"
 	@echo "Starting container on remote host..."
 	@# ~/agora.env carries the key (written by make set-remote-secret). The host
 	@# ships no Ollama, so rung 1 of the chain misses in ~400ms and the key
@@ -484,7 +538,14 @@ deploy-host: preflight-host package-linux ## Deploy to any SSH-reachable host an
 	@# rather than failing to start — degraded, not down.
 	$(SSH) $(DEPLOY_USER)@$(DEPLOY_HOST) \
 	  'set -a; [ -f ~/agora.env ] && . ~/agora.env; set +a; \
-	   HOST_PORT=$(HOST_PORT) AGORA_K=$(AGORA_K) docker compose up -d --wait'
+	   HOST_PORT=$(DEPLOY_PORT) AGORA_K=$(AGORA_K) docker compose up -d --wait'
+	@# The image just replaced leaves its layers behind as untagged garbage. On a
+	@# small instance a few redeploys of a ~200MB image is the difference between
+	@# a working host and a full disk. Dangling only — never a broad prune, which
+	@# would take images belonging to anything else running there.
+	@echo "Reclaiming space from the replaced image..."
+	@$(SSH) $(DEPLOY_USER)@$(DEPLOY_HOST) \
+	  'docker image prune -f 2>/dev/null | tail -1 | sed "s/^/  /" || true'
 	@echo
 	@echo "=== step 1: in-image client (proves the app, ignores the network path) ==="
 	@$(MAKE) test-in-image DEPLOY_HOST=$(DEPLOY_HOST)
@@ -497,14 +558,14 @@ deploy-host: preflight-host package-linux ## Deploy to any SSH-reachable host an
 .PHONY: verify-host
 verify-host: ## Poll health then run the external client from here (Usage: make verify-host DEPLOY_HOST=<ip-or-dns>)
 	@if [ -z "$(DEPLOY_HOST)" ]; then echo "Error: DEPLOY_HOST is required."; exit 1; fi
-	@echo "Waiting for http://$(DEPLOY_HOST):$(HOST_PORT)/healthz (up to 40s)..."
+	@echo "Waiting for http://$(DEPLOY_HOST):$(DEPLOY_PORT)/healthz (up to 40s)..."
 	@# --connect-timeout is essential, not tidiness: a security group that DROPS
 	@# rather than REJECTS leaves the TCP connect hanging until the OS gives up,
 	@# roughly two minutes per attempt. Without it this loop appears to freeze on
 	@# its first try instead of polling.
 	@ok=0; \
 	for i in $$(seq 1 20); do \
-	  if curl -sf --connect-timeout 2 --max-time 4 "http://$(DEPLOY_HOST):$(HOST_PORT)/healthz" >/dev/null 2>&1; then ok=1; break; fi; \
+	  if curl -sf --connect-timeout 2 --max-time 4 "http://$(DEPLOY_HOST):$(DEPLOY_PORT)/healthz" >/dev/null 2>&1; then ok=1; break; fi; \
 	  printf '.'; sleep 2; \
 	done; echo; \
 	if [ $$ok -eq 0 ]; then \
@@ -512,9 +573,9 @@ verify-host: ## Poll health then run the external client from here (Usage: make 
 	  $(MAKE) --no-print-directory diagnose-host; \
 	  exit 1; \
 	fi
-	@curl -sf --max-time 5 "http://$(DEPLOY_HOST):$(HOST_PORT)/healthz" | sed 's/^/  /'
-	bash ./demo.sh http://$(DEPLOY_HOST):$(HOST_PORT)
-	@echo "Agora is running at http://$(DEPLOY_HOST):$(HOST_PORT)"
+	@curl -sf --max-time 5 "http://$(DEPLOY_HOST):$(DEPLOY_PORT)/healthz" | sed 's/^/  /'
+	bash ./demo.sh http://$(DEPLOY_HOST):$(DEPLOY_PORT)
+	@echo "Agora is running at http://$(DEPLOY_HOST):$(DEPLOY_PORT)"
 
 ## Three concentric checks. Each boundary that works narrows the cause, so the
 ## answer is which ring fails first rather than a wall of output:
@@ -522,14 +583,14 @@ verify-host: ## Poll health then run the external client from here (Usage: make 
 ##   the host's loopback   -> port publishing / compose
 ##   from this machine     -> security group, NACL, or host firewall
 .PHONY: diagnose-host
-diagnose-host: ## Diagnose why $(DEPLOY_HOST):$(HOST_PORT) is unreachable
+diagnose-host: ## Diagnose why $(DEPLOY_HOST):$(DEPLOY_PORT) is unreachable
 	@if [ -z "$(DEPLOY_HOST)" ]; then echo "Error: DEPLOY_HOST is required."; exit 1; fi
-	@echo "=== diagnosing http://$(DEPLOY_HOST):$(HOST_PORT) ==="
+	@echo "=== diagnosing http://$(DEPLOY_HOST):$(DEPLOY_PORT) ==="
 	@echo
 	@echo "1. your public IP (what a security group source rule must allow)"
 	@echo "   $$(curl -s --max-time 5 https://checkip.amazonaws.com 2>/dev/null || echo unknown)"
 	@echo
-	@echo "2. reachability of $(HOST_PORT) from this machine"
+	@echo "2. reachability of $(DEPLOY_PORT) from this machine"
 	@# curl rather than a raw TCP probe on purpose. An earlier version used
 	@# `timeout`, which stock macOS does not ship, so BOTH probes failed and
 	@# reported every port closed — including port 22, while the SSH checks
@@ -537,7 +598,7 @@ diagnose-host: ## Diagnose why $(DEPLOY_HOST):$(HOST_PORT) is unreachable
 	@# its exit code separates the two failure modes, which IS the diagnosis:
 	@#   28 = timed out   -> packets DROPPED (security group / NACL)
 	@#    7 = refused     -> host reached, nothing accepted (listener/publishing)
-	@rc=0; out=$$(curl -s --connect-timeout 3 --max-time 6 "http://$(DEPLOY_HOST):$(HOST_PORT)/healthz" 2>/dev/null) || rc=$$?; \
+	@rc=0; out=$$(curl -s --connect-timeout 3 --max-time 6 "http://$(DEPLOY_HOST):$(DEPLOY_PORT)/healthz" 2>/dev/null) || rc=$$?; \
 	 case $$rc in \
 	   0)  echo "   REACHABLE — $$out" ;; \
 	   28) echo "   TIMED OUT — packets are being DROPPED before they reach the host."; \
@@ -550,7 +611,7 @@ diagnose-host: ## Diagnose why $(DEPLOY_HOST):$(HOST_PORT) is unreachable
 	@echo
 	@echo "   (SSH reachability is proven by steps 3-8 below running at all —"
 	@echo "    no separate probe, because a probe that can lie is worse than none)"
-	@$(SSH) $(DEPLOY_USER)@$(DEPLOY_HOST) 'bash -s' -- $(HOST_PORT) < scripts/diagnose-remote.sh \
+	@$(SSH) $(DEPLOY_USER)@$(DEPLOY_HOST) 'bash -s' -- $(DEPLOY_PORT) < scripts/diagnose-remote.sh \
 	  || echo "   ssh failed — could not run the host-side checks"
 	@echo
 	@echo "=== how to read this ==="
@@ -562,7 +623,7 @@ diagnose-host: ## Diagnose why $(DEPLOY_HOST):$(HOST_PORT) is unreachable
 	@echo "                               you edited. This is the common one."
 	@echo "                             * rule exists but for the wrong protocol or port range"
 	@echo "                             * source is a stale 'My IP' that no longer matches step 1"
-	@echo "                             * subnet network ACL denies $(HOST_PORT) inbound or outbound"
+	@echo "                             * subnet network ACL denies $(DEPLOY_PORT) inbound or outbound"
 
 ## --- Clean ---
 
