@@ -57,11 +57,24 @@ type Store interface {
 }
 
 type SlateItem struct {
-	TitleID      string  `json:"title_id"`
-	Title        string  `json:"title"`
-	Availability string  `json:"availability"`
-	Runtime      int     `json:"runtime"`
-	Score        float64 `json:"score"`
+	TitleID      string `json:"title_id"`
+	Title        string `json:"title"`
+	Availability string `json:"availability"`
+	Runtime      int    `json:"runtime"`
+	// NOT serialised. The score is the sum of ALL constraint weights, public and
+	// private alike — that is what makes private constraints influence the
+	// ranking without being speakable. Published to members it becomes a
+	// numeric side channel around the entire anonymity layer: subtract the
+	// contribution of the public constraints and the residual is the weight of
+	// the below-threshold ones. In the seeded family, Run Lola Run (a thriller)
+	// outscored a comedy on a slate whose public constraints were "comedies"
+	// and "something short" — the surplus WAS the private constraints, in a
+	// number anyone could read.
+	//
+	// The field stays for ordering and for tests. Members get the order, which
+	// is the part that carries meaning; the arithmetic behind it is not theirs
+	// to reconstruct.
+	Score float64 `json:"-"`
 }
 
 type Quorum struct {

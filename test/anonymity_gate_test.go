@@ -1,6 +1,7 @@
 package test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -163,5 +164,68 @@ func TestAnonymityGate_CloudParityDescopeIsClean(t *testing.T) {
 	if len(res.PublicConstraints) < len(famRes.PublicConstraints) {
 		t.Errorf("K=1 should speak at least as much as K=2: %d vs %d",
 			len(res.PublicConstraints), len(famRes.PublicConstraints))
+	}
+}
+
+// The numeric side channel.
+//
+// Anonymity is enforced on WORDS — the justification names no member and cites
+// no below-threshold constraint. The score was enforced on nothing, and it is
+// the sum of every constraint weight, private ones included. Published to
+// members it walks straight around the whole layer: subtract what the public
+// constraints explain and the residual is the private weight.
+//
+// Observed on the seeded family: with public constraints ["comedies",
+// "something short"], Run Lola Run (a thriller, tone intense — both singletons)
+// scored 3.90, ABOVE Groundhog Day, a comedy, at 3.60. The surplus was
+// Catelyn's private constraints, readable by anyone holding the slate.
+//
+// Asserted on the SERIALISED form, because that is what a member receives. A
+// field that exists in Go but never reaches JSON is not a leak; this test would
+// not notice the difference if it inspected the struct.
+func TestAnonymityGate_SlateCarriesNoNumericSideChannel(t *testing.T) {
+	a := newApp(t, 2)
+
+	cv, err := a.Arbiter.Convene(ctx(), a.GroupID, "bran")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cv.Slate) == 0 {
+		t.Fatal("empty slate")
+	}
+
+	blob, err := json.Marshal(cv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, banned := range []string{`"score"`, `"weight"`, `"tally"`, `"count"`} {
+		if strings.Contains(string(blob), banned) {
+			t.Errorf("the convene a member receives exposes %s — anonymity is enforced "+
+				"on the justification's words, so a number derived from private "+
+				"constraints walks around it entirely:\n  %s", banned, blob)
+		}
+	}
+
+	// The notification carries the same slate to every member, so it is the
+	// same disclosure by another route.
+	notes, err := a.Store.PopNotifications("arya")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range notes {
+		nb, err := json.Marshal(n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(nb), `"score"`) {
+			t.Errorf("a movie_night_ready notification exposes scores:\n  %s", nb)
+		}
+	}
+
+	// And the ordering a member DOES get must still be the reconciler's, or
+	// removing the number would have cost the meaning it carried.
+	if cv.Slate[0].Score < cv.Slate[len(cv.Slate)-1].Score {
+		t.Errorf("slate is no longer ordered by score: %.2f then %.2f",
+			cv.Slate[0].Score, cv.Slate[len(cv.Slate)-1].Score)
 	}
 }
