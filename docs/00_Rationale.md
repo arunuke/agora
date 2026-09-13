@@ -105,6 +105,44 @@ The following design decisions were all made to address the time constraint.
 
 **LLM Heavy-Lifts** - The LLM is used for every other task besides the scope for agents (collect information from clients) and arbiter (persist information in database, exchange information with the LLM). The LLM assists not only in generating the responses, but also in normalizing data to be stored in the DB.
 
+*A note on what "heavy lift" does not mean.* The sentence above describes the
+**running system** — the LLM normalizes input and writes prose so the code does
+not have to. It is not a description of how the project was built. This was not
+a brief handed to an assistant; it was a working relationship in which review
+in both directions changed the design, and the record of that is kept rather
+than summarised.
+
+[ClaudeFeedback.md](ClaudeFeedback.md) marks every pipeline change **[ASKED]**
+where I directed it and **[ADDED]** where Claude acted on its own, so direction
+and initiative stay distinguishable. Specific places my review changed the
+outcome:
+
+- **[The anonymity claim was overstated, and I corrected it from experience.](ClaudeFeedback.md#correction-claude-over-claimed-and-the-corrected-version-is-stronger)**
+  Claude framed attribution as a documented pain in cloud on-call. It is not —
+  it is acceptable for Storage to know how Networking is configured. Isolation
+  is inherited from that domain; anonymity is net-new to this one. The corrected
+  claim is narrower and considerably stronger than the original.
+- **[I challenged the web UI and Claude reversed its own recommendation.](ClaudeFeedback.md#i11--the-web-ui-cut-reversal-of-a-round-1-decision)**
+  *Is curl not adequate, and what does a page add beyond better UX?* One of the
+  two arguments that killed it should have been made the first time.
+- **[Provider precedence was inverted on my direction.](ClaudeFeedback.md#provider-precedence-inverted--local-first)**
+  Local model first, paid key only where no local model exists — so development
+  costs nothing and the deployed host still runs the real thing.
+- **[Six defects were found by me running the deployed system, with the whole suite green.](ClaudeFeedback.md#session-4--2026-09-1213--deployment-hardening-and-what-manual-testing-caught)**
+  A privacy leak through published ranking scores, a build target that never
+  existed, a schema migration no local run could reach. Every one surfaced by
+  using the thing rather than by testing it.
+- **[Claude's own mistakes are recorded, not quietly fixed.](ClaudeFeedback.md#mistakes-made-and-corrected)**
+  A dependency validated on the wrong machine, a tool's success message trusted
+  over the file on disk, manual steps handed back that it could have done itself.
+
+The division of labour that actually held: I set direction, challenged claims
+and found what broke in the real environment; Claude wrote the code, the tests
+and the documents, and argued back when it disagreed. The
+[method section](ClaudeFeedback.md#method--tests-instead-of-line-by-line-review)
+is honest about the cost of that split — three of the six defects above would
+plausibly have been caught by a line-by-line review nobody had time to do.
+
 # Key Challenges
 
 **LLM Integration** - The LLM integration was one the more complicated parts of this solution. In the actual production use-case for the infrastructure agents/arbiter, a home-grown Managed Inference service was used which provided native API keys. However, for this effort, I had to use a few different methods to achieve the desired effect. For local builds, I used a simulated model where an LLM was simulated. This also acts as the fallback when LLMs are not available. Local builds were also enhanced with an open-source llama model weight. Deployed instances that clients can use will use Anthropic.
