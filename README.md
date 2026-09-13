@@ -44,10 +44,11 @@ planned and what shipped stays legible.
 ## User Experience
 
 Everything is HTTP and JSON on one port. There is no web UI **on purpose**: the
-assignment permits an API-only submission, the video carries the visual
-legibility a page would have provided, and for an isolation claim raw JSON is
-*more* credible than a rendered page — a page is a layer that could be filtering
-client-side.
+assignment permits an API-only submission, and for an isolation claim raw JSON
+is *more* credible than a rendered page — a page is a layer that could be
+filtering client-side. What a page would have added, legibility, is carried by
+the guided commands below, by `demo.sh`, and by a single-request walkthrough
+that asserts as it runs.
 
 **Nothing to build.** An instance is running and seeded. Set the host once and
 every example below works as written:

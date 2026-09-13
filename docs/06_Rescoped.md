@@ -171,7 +171,7 @@ Explicitly out of scope for the prototype. Each is a known-solved problem, docum
 6. **Notification transport.** No email, Slack, or push. Notifications are piggybacked onto the next response.
 7. **Horizontal scale, HA, clustered storage, Kubernetes, service mesh, GitOps.**
 8. **Token and cost optimization.**
-9. **Any web UI at all.** Cut deliberately, not for time alone. The assignment permits an API-only submission, the required ~5 minute video already carries the visual legibility a page would have provided, and for an isolation claim a rendered view is *less* credible than raw JSON — a page is a layer that could be filtering client-side. A UI would also add a second test surface and an independent failure mode for no distinct gain. Recovered instead by the `walkthrough` endpoint, which shares its implementation with the demo smoke test.
+9. **Any web UI at all.** Cut deliberately, not for time alone. The assignment permits an API-only submission, and for an isolation claim a rendered view is *less* credible than raw JSON — a page is a layer that could be filtering client-side. A UI would also add a second test surface and an independent failure mode for no distinct gain. The legibility a page would have provided is recovered by the README's guided commands and by the `walkthrough` endpoint, which shares its implementation with the demo smoke test.
 
 **Note the split from Assumption 2 below:** authentication is out of scope, but **cross-user isolation and anonymity are in scope** and are graded properties of the prototype. These are different things and were previously conflated.
 
@@ -944,7 +944,7 @@ Every drop below is **for timeline reasons only**. Each is a known-solved proble
 
 Cut deliberately, and not only for time. The assignment permits an API-only submission, so this costs no compliance.
 
-- **The required video already does the UI's job.** A page's distinctive value was making coordination legible at a glance. A ~5 minute video is a mandatory deliverable and is precisely the medium for that, so the UI's unique contribution is largely duplicated by something we must produce anyway.
+- **Legibility is recoverable without a page.** A page's distinctive value was making coordination legible at a glance. The README's guided commands, `demo.sh`, and a walkthrough endpoint that narrates and asserts the whole scenario in one request cover that, and they are things a reviewer can run rather than watch.
 - **For an isolation claim, raw JSON is more credible than a rendered page.** A UI showing "no leak" is *weaker* evidence than `curl` showing no leak, because the page is a layer that could be filtering client-side. A reviewer auditing a privacy claim trusts the wire, not our HTML. The UI would actively undercut the thing it was meant to showcase.
 - **It is a second test surface and an independent failure mode** — static asset serving, client-side state, JS that breaks on its own schedule — for no distinct gain.
 

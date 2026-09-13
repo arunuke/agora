@@ -138,11 +138,13 @@ Sealed signals therefore never carry embeddings. Shipping a profile vector acros
 
 Cut deliberately, after initially planning one. The assignment permits an API-only submission, so it costs no compliance, and three things argued against it:
 
-The required ~5 minute video already does the UI's job. A page's distinctive value was making coordination legible at a glance, and the video is the medium built for exactly that — so the UI's unique contribution was largely duplicated by a mandatory deliverable.
+**For an isolation claim a rendered page is weaker evidence than raw JSON.** A UI showing "no leak" is a layer that could be filtering client-side. A reviewer auditing a privacy guarantee trusts the wire, not our HTML. The page would have undercut the very thing it was meant to showcase.
 
-More importantly, **for an isolation claim a rendered page is weaker evidence than raw JSON.** A UI showing "no leak" is a layer that could be filtering client-side. A reviewer auditing a privacy guarantee trusts the wire, not our HTML. The page would have undercut the very thing it was meant to showcase.
+A page's distinctive value would have been making coordination legible at a glance, and that is carried instead by documentation a reviewer can act on: copy-pasteable commands in the README, a narrated `demo.sh`, and `POST /v1/demo/walkthrough`, which runs the whole scenario server-side and reports which criteria passed.
 
 And it is a second test surface with an independent failure mode — asset serving, client state, JS — for no distinct gain.
+
+*Not* an argument for cutting it: that the required video would substitute for a UI. The video is a design walkthrough with a demo run at the end — a different artifact for a different purpose, and it is not interactive. A reviewer who wants to try the system uses the README.
 
 ### What was lost by cutting it, and how is that recovered?
 
