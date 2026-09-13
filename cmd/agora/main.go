@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/arunuke/agora/internal/app"
+	"github.com/arunuke/agora/internal/arbiter"
 	"github.com/arunuke/agora/internal/httpapi"
 	"github.com/arunuke/agora/internal/llm"
 )
@@ -26,7 +27,7 @@ func main() {
 		// anonymity threshold, so a silently-ignored AGORA_K is a silently
 		// wrong privacy posture that looks like it worked.
 		k        = flag.Int("k", envOrInt("AGORA_K", 2), "anonymity threshold: 1 = cloud parity (anonymity off), 2 = family default")
-		deadline = flag.Duration("member-deadline", 2*time.Second, "per-member consult deadline")
+		deadline = flag.Duration("member-deadline", arbiter.DefaultMemberDeadline, "per-member consult deadline")
 	)
 	flag.Parse()
 

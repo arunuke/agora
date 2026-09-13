@@ -12,39 +12,11 @@ were written with — a record that renames itself is no longer a record.
 
 ## Sessions and time spent
 
-| # | When | What | Time |
-|---|---|---|---|
-| 1 | 2026-09-05 → 09-07 | Initial documents, written by hand before any collaboration | ~1 h |
-| 2 | 2026-09-07 evening → 09-08 morning | Requirements validation, scope reduction, theme anchoring, rescoped design, and the implementation | ≥ 1 h 10 min |
-| 3 | 2026-09-12 afternoon | Refinement — removing growth, not adding features | ≥ 40 min |
-| 4 | 2026-09-12 evening → 09-13 | Deployment, provider chain, scenario gates, hardening | 3 h 34 min elapsed / ~2 h working |
+The assignment asks for this in the design rationale, so it lives in
+[00_Rationale.md](00_Rationale.md) under *Time Spent* — the sessions table, how
+each figure was derived, and which of them are measurements rather than floors.
 
-**Roughly 6 h 30 min elapsed, of which about 5 h was hands on keyboard.** Inside
-an eight-hour window either way.
-
-**Where the time did not go: writing the code.** Generating the implementation
-was around 40 minutes of session 2 — 45 files in one commit. The hours went to
-the documents that preceded it, which is what made a 40-minute generation
-produce something coherent, and to the testing that followed it, which is where
-session 4 went almost entirely.
-
-**How session 4 was derived.** A conversation log of 1,297 timestamped entries,
-17:17 → 20:51 local, 280 turns. Elapsed is 3 h 34 min. Subtracting the eleven
-gaps longer than three minutes — 88 minutes in total, the largest 24 — leaves
-about 2 h of continuous work. It was not three and a half hours of
-uninterrupted effort, and the gaps are visible in the log.
-
-One honest caveat on that subtraction: a gap in the log is not necessarily a
-person away from the desk. Pulling a 2 GB model took ten minutes and a
-cross-architecture image build took another, both of which appear as silence.
-The true hands-on figure sits between the two numbers and cannot be separated
-further from this data.
-
-**Sessions 2 and 3 have no conversation log on this machine**, so their figures
-are floors recovered from git commits and file modification times, not
-durations. A file's timestamp records its last save and says nothing about the
-thinking before it. Session 1 is Arun's own estimate for work that predates any
-collaboration.
+The session entries below are numbered to match it.
 
 ---
 
@@ -897,3 +869,91 @@ two targeted passes:
 2. **The paths no local command exercises** — the deploy targets and the
    upgrade-in-place path, which `make pipeline` structurally cannot reach
    because it starts from an empty volume every run.
+
+
+# Session 5 — 2026-09-13 — Review pass
+
+*+2 h 48 min elapsed, ~1 h 25 min working, continuing the same conversation on a
+`code-reviews` branch.*
+
+Two findings, one a latent defect and one an enhancement. Both came from the
+same question: is the deployed instance actually ready to demonstrate?
+
+## 1. The deadline was sized for the wrong provider
+
+**Found by checking the deployed host rather than the test suite.** Every
+convene on it reported `degraded: true, tier: 2`, while messages on the same
+instance ran at tier 1 and `/healthz` reported a healthy Anthropic key.
+
+The per-member consult deadline defaulted to **2 seconds**. Measured against
+that host, a single Anthropic extraction takes **~4.5s**. So every consult in
+the fan-out was cancelled mid-flight and fell to embeddings — nothing was
+broken, the degradation ladder was doing exactly its job, but it was degrading
+for a *configuration* reason rather than a failure.
+
+Two consequences, and the second is the one that would have shown up on camera:
+
+- the centrepiece of the demo reported itself degraded while perfectly healthy
+- slates were unstable, three titles one run and five the next, because tier 2
+  is embedding nearest-neighbour and noisier than the model
+
+That instability also **corrects an earlier diagnosis in this log.** Session 4
+attributed the walkthrough's 12/16 → 15/16 → 16/16 variance to Claude's richer
+extraction. The real driver was the opposite: the convene path never reached
+Claude at all, and embeddings were the unstable input. The occasion-precedence
+fix was still necessary; it simply was not the root cause.
+
+**Fixed in three steps, in the order they were understood.** First a
+`docker-compose` override. Then, on Arun's instruction, the number was pulled
+into `arbiter.DefaultMemberDeadline` — it had been written as a bare literal in
+*three* packages, one more than either of us expected, and the third was a
+fallback in `arbiter.New` that neither had mentioned. Then the default itself
+moved from 2s to 6s and the compose override was deleted, because a default
+sized for the fast path is a trap: it breaks for whoever configures a real
+provider and buys nothing for whoever does not, since the deterministic
+extractor never approaches any deadline.
+
+One code change followed from it. The walkthrough's hanging-member step
+asserted the coordinator returns inside 10s, and that budget is the deadline
+plus a ranking call — sized for an extractor that answers instantly. It is now
+20s. The property is untouched: what it proves is that an *unbounded* hang
+returns at all, and a missing context deadline never returns at any threshold.
+
+**What this says about the earlier work.** The deadline is the only
+operationally significant setting that `/healthz` does *not* echo. `k` and the
+provider are both there, on the stated reasoning that a setting nobody can
+observe is a setting nobody can verify. Diagnosing this took latency
+measurements and source reading; one field would have made it a single request.
+Recorded, not fixed.
+
+## 2. The catalogue was too small to exercise its own features
+
+**Raised by Arun:** 60 titles is thin for a demo. Expanded to **493**.
+
+The shape matters more than the count. Christmas had four titles, which meant a
+christmas marathon returned a slate of four where the code asks for five — the
+seasonal filter was correct and had nothing to work with. Occasions now carry
+44–57 titles each, every era from pre-1970 to the 2020s is represented, and the
+genre spread runs from 45 scifi to 103 comedy.
+
+Every field is validated against `internal/vocab` at generation time, because a
+value outside the closed vocabulary is not a cosmetic error: constraints match
+by exact equality, so such a title would sit in the catalogue and never be
+recommended by anything, silently.
+
+Two mistakes were made and corrected while doing it, both worth recording:
+
+- **Invented titles.** The first pass included fabricated films — riffs like
+  *"WALL-E and the Long Night"* and *"Jaws 2 Never Again"* that read as real
+  sequels. In a fixture that otherwise looks factual, that is a trap for anyone
+  who reads it. Removed, and the batches rewritten with real films only.
+- **Thirty-nine duplicate films.** New entries generated their own ids from the
+  title, which did not match the ids the original 60 used — `t_the_fifth_element`
+  against `t_fifthelement`. The same film existed twice and a slate could have
+  shown it twice. Deduplicated on title, keeping the original id in every case.
+
+The catalogue's `_note` now states what the metadata is and is not: titles are
+real, genre and tone and occasion are editorial judgements made to exercise the
+vocabulary, runtimes and eras are approximate, and availability is **assigned
+rather than licensed data**. It replaces a Collector that would carry the real
+thing.
