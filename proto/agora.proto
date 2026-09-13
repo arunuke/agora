@@ -1,0 +1,173 @@
+// This file is a DESIGN ARTIFACT. It is deliberately not compiled into the
+// build and no generated code exists in this repository.
+//
+// Agent and arbiter are packages inside one binary, so there is no wire
+// between them and gRPC would be transport ceremony around a function call.
+// The .proto exists so that splitting them in production generates from a real
+// contract rather than from a guess: every message here maps one-to-one onto
+// the Go request/response structs in internal/arbiter/ports.go, and
+// MemberAgentService.Consult maps onto the arbiter-owned MemberAgent
+// interface. The production split is therefore a second implementation of an
+// existing contract, not a refactor.
+
+syntax = "proto3";
+
+package agora.v1;
+
+option go_package = "github.com/arunuke/agora/gen/agorav1;agorav1";
+
+// ---------------------------------------------------------------- vocabulary
+
+enum Polarity {
+  POLARITY_UNSPECIFIED = 0;
+  POLARITY_PREFER = 1;
+  POLARITY_EXCLUDE = 2;
+}
+
+// A closed-vocabulary constraint. dim and value are drawn from a fixed
+// enumeration (internal/vocab), which is what makes the k-threshold decidable:
+// anonymity requires countability, and countability requires a closed set.
+message Constraint {
+  string dim = 1;
+  string value = 2;
+  Polarity polarity = 3;
+  double weight = 4;
+}
+
+// A hard exclusion. Separate from Polarity because it is a filter, not a
+// weight — it cannot be outvoted.
+message Veto {
+  string dim = 1;
+  string value = 2;
+}
+
+// What a member's agent emits.
+//
+// Note what this message CANNOT carry: raw preference text, a member id, or an
+// embedding. That is layer 1 of anonymity (content de-identification) and it
+// is enforced by the message shape itself. A profile embedding is derived but
+// re-identifying and partially invertible, so it stays behind the private
+// boundary and never travels in a signal.
+message Signal {
+  string signal_id = 1;
+  repeated Constraint constraints = 2;
+  repeated Veto vetoes = 3;
+  int32 tier = 4; // fidelity tier used to produce it: 1 LLM, 2 embedding, 3 keyword
+}
+
+// ------------------------------------------------------- agent <-> arbiter --
+
+message ConsultRequest {
+  string member_id = 1;
+  string purpose = 2;
+}
+
+message ConsultResponse {
+  Signal signal = 1;
+  bool degraded = 2;
+  int32 tier = 3;
+}
+
+// MemberAgentService is the wire form of the arbiter-owned MemberAgent
+// interface. In production the arbiter calls this with a per-member deadline
+// and proceeds at reduced quorum when it is not met.
+service MemberAgentService {
+  rpc Consult(ConsultRequest) returns (ConsultResponse);
+}
+
+// ------------------------------------------------------- client <-> arbiter -
+
+message MessageRequest {
+  string user_id = 1;
+  string session_id = 2;
+  string message = 3;
+}
+
+message Notification {
+  string type = 1;
+  string message = 2;
+  string data_json = 3;
+}
+
+message MessageResponse {
+  string response = 1;
+  string user_id = 2;
+  bool degraded = 3;
+  int32 tier = 4;
+  repeated Notification notifications = 5;
+}
+
+message ConveneRequest {
+  string group_id = 1;
+  string requested_by = 2;
+}
+
+message SlateItem {
+  string title_id = 1;
+  string title = 2;
+  string availability = 3;
+  int32 runtime = 4;
+  double score = 5;
+}
+
+message Quorum {
+  int32 represented = 1;
+  int32 of = 2;
+  bool provisional = 3;
+}
+
+message ConveneResponse {
+  string convene_id = 1;
+  repeated SlateItem slate = 2;
+  string justification = 3;
+  Quorum quorum = 4;
+  bool degraded = 5;
+  int32 tier = 6;
+  // Only constraints that met the k-threshold. Nothing below threshold appears
+  // here or in the justification.
+  repeated string public_constraints = 7;
+}
+
+service ArbiterService {
+  rpc HandleMessage(MessageRequest) returns (MessageResponse);
+  rpc Convene(ConveneRequest) returns (ConveneResponse);
+}
+
+// ------------------------------------------------------------- llm provider -
+
+// Kept as an interface so providers are swappable. In the prototype this is a
+// Go interface with three implementations: live, deterministic (also the
+// tier-3 path and the hermetic test double), and a chaos decorator.
+//
+// EmbedderService is separate from LLMService on purpose: completion and
+// embedding endpoints fail independently, and that independence is what makes
+// tier 2 of the degradation ladder a real operating mode.
+message LLMRequest {
+  string task = 1;
+  string input = 2;
+  string payload_json = 3;
+}
+
+message LLMResponse {
+  string text = 1;
+  string json = 2;
+}
+
+service LLMService {
+  rpc Complete(LLMRequest) returns (LLMResponse);
+}
+
+message EmbedRequest {
+  repeated string texts = 1;
+}
+
+message EmbedResponse {
+  message Vector {
+    repeated float values = 1;
+  }
+  repeated Vector vectors = 1;
+}
+
+service EmbedderService {
+  rpc Embed(EmbedRequest) returns (EmbedResponse);
+}

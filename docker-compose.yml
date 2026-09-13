@@ -1,0 +1,56 @@
+services:
+  agora:
+    image: ${IMAGE_NAME:-agora:latest}
+    container_name: agora
+    restart: unless-stopped
+    # Per-member consult deadline. The 2s default is calibrated for the
+    # deterministic extractor, which answers instantly. A real provider does
+    # not: a single Anthropic extraction measured ~4.5s against the deployed
+    # host, so every member consult was cancelled mid-flight and the whole
+    # convene degraded to tier 2 while the key was healthy and working.
+    #
+    # 6s clears that with margin. The upper bound is the walkthrough's
+    # hanging-member step, which asserts the coordinator returns promptly:
+    # that budget is this deadline plus Loop B ranking (~3s measured).
+    command: ["--member-deadline", "6s"]
+    ports:
+      - "${HOST_PORT:-8080}:8080"
+    volumes:
+      - agora-data:/data
+    environment:
+      - AGORA_ADDR=:8080
+      - AGORA_DB=/data/agora.db
+      - AGORA_SEED=/app/seed
+      # Read by the binary as the default for --k. The anonymity threshold:
+      # 1 = cloud parity (anonymity off), 2 = family default.
+      # Confirm what is actually live with GET /healthz — it echoes the policy.
+      - AGORA_K=${AGORA_K:-2}
+      # Supplied by the HOST environment at run time, never baked into the
+      # image: a value set via Dockerfile ENV is visible in `docker history`
+      # on every layer you ship. deploy-host sources ~/agora.env (mode 600)
+      # before invoking compose, so the key never appears in argv either.
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - AGORA_LLM_MODEL=${AGORA_LLM_MODEL:-}
+      # The OpenAI-compatible path, so `make pipeline` can exercise a real
+      # model. For a model on the HOST use host.docker.internal, not localhost:
+      # inside the container localhost is the container.
+      #   AGORA_LLM_BASE=http://host.docker.internal:11434/v1 make pipeline
+      - AGORA_LLM_BASE=${AGORA_LLM_BASE:-}
+      - AGORA_LLM_KEY=${AGORA_LLM_KEY:-}
+      # Forces the paid path even when a local model is reachable.
+      - AGORA_LLM_PREFER=${AGORA_LLM_PREFER:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      # /healthz is cheaper than /v1/members and echoes the live anonymity
+      # policy, so `docker inspect` and the deploy probe both show which
+      # privacy posture is actually running.
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  agora-data:
+    name: agora-data

@@ -1,0 +1,70 @@
+{
+  "group_id": "rivera-family",
+  "members": [
+    {
+      "member_id": "arya",
+      "display_name": "Arya",
+      "raw_context": [
+        "I really love nineties science fiction, the practical-effects era",
+        "I absolutely cannot do horror, jump scares gave me nightmares as a kid",
+        "My guilty pleasure is Bulgarian brass band contests"
+      ]
+    },
+    {
+      "member_id": "bran",
+      "display_name": "Bran",
+      "raw_context": [
+        "I want comedies, something light after work",
+        "Please keep it short, under 90 minutes if you can",
+        "I have a weakness for competitive sheepdog trialling broadcasts"
+      ]
+    },
+    {
+      "member_id": "catelyn",
+      "display_name": "Catelyn",
+      "raw_context": [
+        "Funny stuff is always good with me",
+        "I love an intense thriller, edge of my seat",
+        "Recent releases please, 2020s if possible",
+        "My secret shame is Icelandic competitive knitting coverage"
+      ]
+    },
+    {
+      "member_id": "daenerys",
+      "display_name": "Daenerys",
+      "raw_context": [
+        "Documentaries are my thing, nonfiction over drama every time",
+        "Something cozy and autumnal is perfect for me",
+        "I could watch Soviet-era submarine memorabilia auctions all day"
+      ]
+    },
+    {
+      "member_id": "eddard",
+      "display_name": "Eddard",
+      "raw_context": [
+        "Animation! Cartoons and anime are the best",
+        "Keep it short, I get restless",
+        "Family friendly stuff so we can all watch together",
+        "I am oddly fascinated by Latvian pinball championship footage"
+      ]
+    }
+  ],
+  "_seed_notes": {
+    "shared_reaching_k": [
+      "genre:comedy  — Bran + Catelyn  (2 signals, becomes PUBLIC at k=2)",
+      "runtime_max_min:90 — Bran + Eddard (2 signals, becomes PUBLIC at k=2)"
+    ],
+    "singletons_that_must_stay_private": [
+      "genre:scifi — Arya only",
+      "genre:documentary — Daenerys only",
+      "genre:animation — Eddard only",
+      "tone:cozy — Daenerys only",
+      "tone:intense — Catelyn only"
+    ],
+    "singleton_veto_that_must_stay_silent": "genre:horror — Arya only",
+    "canaries": [
+      "Each member carries one rare, high-entropy preference used solely for leak detection.",
+      "Rare tokens make substring matching a strong proxy and any hit unambiguous."
+    ]
+  }
+}

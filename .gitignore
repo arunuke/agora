@@ -1,0 +1,21 @@
+bin/
+data/
+*.db
+*.db-wal
+*.db-shm
+coverage.out
+coverage.html
+
+# Deployment settings and credentials — never committed.
+deploy.env
+*.pem
+*.key
+*.p12
+id_rsa*
+
+# API keys and any local env file
+.env
+*.env
+!deploy.env.example
+secrets.env
+agora.env

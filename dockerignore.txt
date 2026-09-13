@@ -1,0 +1,40 @@
+# The build stage does `COPY . .`, so without this every one of these files
+# lands in a build layer.
+#
+# deploy.env and *.pem are the reason this file matters: they would not reach
+# the FINAL image (that stage copies only the binary, seed/ and demo.sh), but
+# they would sit in the build cache, and `docker history` on an intermediate
+# layer is not a place credentials should be.
+
+.git
+.gitignore
+
+# local build output and state
+bin/
+data/
+*.db
+*.db-wal
+*.db-shm
+coverage.out
+coverage.html
+
+# credentials and local settings — never in a build layer
+deploy.env
+*.pem
+*.key
+*.p12
+id_rsa*
+
+# host-side tooling, not used inside the image
+scripts/
+
+# documentation
+*.md
+!README.md
+sample_walkthrough.json
+
+# never let key material into a build layer
+.env
+*.env
+secrets.env
+agora.env
