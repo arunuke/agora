@@ -6,7 +6,7 @@
 // page is a layer that could be filtering client-side.
 //
 // Routing uses net/http. Go 1.22+ ServeMux does method-and-pattern routing, so
-// seven routes need no framework and no dependency.
+// ten routes need no framework and no dependency.
 package httpapi
 
 import (
