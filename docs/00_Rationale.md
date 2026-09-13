@@ -175,3 +175,7 @@ That trade is accounted for in [ClaudeFeedback.md](ClaudeFeedback.md) under *Met
 **Anonymity Testing**
 
 The current set of tests are a bit weak on anonymity validation. Testing the system with different inputs to see if there are any scenarios where user preference can leak would be a good addition for the anonymity claim. However, we are out of time and this would be something to pick when time is available.
+
+This is not a hypothetical worry. [The one anonymity leak found in this project](ClaudeFeedback.md#1-the-numeric-side-channel--the-most-serious-defect-found) was caught by reading a response by hand, not by the suite: every slate published a per-title **score**, and that score is the sum of *all* constraint weights — including the below-threshold ones the k-threshold exists to suppress. Subtracting what the public constraints explain left the private weight in plain arithmetic, in the convene response and in every notification.
+
+Five anonymity tests were green the entire time it was there. Each of them asserts on what the system *says* — the justification names no member, speaks no below-threshold phrase, cannot explain a veto. None asserted on what it *counts*. That is the precise shape of the gap: the property was stated about language, so every non-verbal channel derived from the same secret went unguarded. The varied-input testing described above is what would close it, and a review pass over every field that crosses to a member — asking only *is this derived from something private?* — would have caught this one in a minute.
