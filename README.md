@@ -236,6 +236,17 @@ make verify-host DEPLOY_HOST=<ip>          # re-run the external check
 make diagnose-host DEPLOY_HOST=<ip>        # three concentric checks, narrows the cause
 ```
 
+**Resetting a running instance.** The demo group accumulates state — members
+added at runtime, preferences stated during a walkthrough — and that changes
+which constraints clear the anonymity threshold, so a convene can legitimately
+return a narrower slate than a fresh one. One request puts it back to seed:
+
+```bash
+curl -sX POST $HOST/v1/demo/reset          # re-seeds members, catalogue and events
+```
+
+Worth running before a demo, and after anyone has been experimenting.
+
 Supporting targets: `make help` lists everything. `up`/`down` run the container
 without the pipeline; `bootstrap-host` installs Docker on a fresh box;
 `ollama-setup`/`ollama-down` manage a local model; `check` validates key and

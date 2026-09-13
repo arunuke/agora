@@ -237,7 +237,14 @@ func Run(ctx context.Context, a *app.App) (Transcript, error) {
 		},
 		Demonstrates: "US5 — a hanging participant cannot hang the coordinator. " +
 			"This is the test a missing context deadline would pass every other test to fail.",
-		Passed: elapsed < 10*time.Second && cvHang.Quorum.Provisional,
+		// The bound is deliberately generous, and it is not the point. What is
+		// being proven is that an UNBOUNDED hang returns at all — a missing
+		// context deadline never comes back, at ten seconds or ten minutes. The
+		// earlier 10s figure was sized for the deterministic extractor, which
+		// answers instantly; against a real provider the same convene costs the
+		// per-member deadline plus a ranking call, and a threshold that tight
+		// would fail for being slow rather than for hanging.
+		Passed: elapsed < 20*time.Second && cvHang.Quorum.Provisional,
 	})
 
 	// ---- US5c: completions down, embeddings up → tier 2 ------------------

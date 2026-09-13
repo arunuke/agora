@@ -116,6 +116,20 @@ A simulated clock. A `tick` control advances time so scheduled convenes and seas
 
 An automated check: every seeded user's private preference strings are matched against every response returned to any other user, and the build fails on any hit. Isolation is easy to claim and easy to violate by accident — particularly through LLM-generated justification text — so it is a gate, not a manual inspection.
 
+### Why is the per-member consult deadline 6 seconds, and not 2?
+
+Because 2 was calibrated against the wrong provider.
+
+The arbiter fans out to every member's agent in parallel and gives each one a deadline, so a slow or hung participant cannot stall the group. That deadline defaulted to 2 seconds, which is generous for the deterministic extractor — it answers instantly — and impossible for a real one. Measured against the deployed host, a single Anthropic extraction takes **~4.5s**. Every member consult was therefore cancelled mid-flight and fell to tier 2, so a convene reported `degraded: true` while the key was healthy and messages on the same instance were running at tier 1.
+
+Nothing was broken: the ladder did exactly what it exists to do. But it was degrading for a configuration reason rather than a failure, and it made the slate unstable, because tier 2 is embedding nearest-neighbour and noisier than the model.
+
+The upper bound is the walkthrough's hanging-member step. That convene costs the deadline plus a Loop B ranking call (~3s measured), so the total must stay inside the step's budget. 6 seconds clears extraction with margin and stays well inside it.
+
+The number is arbitrary in the sense that any value in a range would do. It is not arbitrary in the sense that matters: it was chosen from measurements of the provider actually deployed, and the two bounds that constrain it are both observable.
+
+A related gap, recorded rather than fixed: `--member-deadline` is a flag, not an environment variable like `AGORA_K`, so a container tunes it through a `command:` override in `docker-compose.yml` rather than through configuration.
+
 ### What happens when the LLM is down?
 
 The system degrades in graded tiers rather than falling off a cliff. Translating free text into a constraint is tier 1 (LLM extraction), tier 2 (embed the phrase, nearest-neighbour against the canonical vocabulary) and tier 3 (keyword match). Group ranking falls back to deterministic scoring with a templated justification. Every degraded response is labeled with its tier. The system never fabricates a recommendation and never hangs. This is a stated acceptance criterion, not an error path.

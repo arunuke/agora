@@ -97,35 +97,15 @@ Validation is a time-consuming, manual process which this projects automates for
 
 The validation process also includes an integration test that is built with scenarios that mirror the user stories defined in the scope. This allows the developer to ensure, using automated means, that the service still meets feature requirements and there are no regressions.
 
-## Rollout
+## LLM Co-Development
 
-Rollout is also done via specific targets in the Makefile for simplification. For production environments, this would be done via a service similar to Argo.
+Elsewhere in this document, *LLM Heavy-Lifts* describes the **running system** —
+the model normalizes input and writes prose so the code does not have to. This
+section is about something different: how the project itself was built.
 
-
-# Design Decisions & Tradeoffs
-
-## Time Optimized
-
-The following design decisions were all made to address the time constraint.
-
-**Deployment Model** - From a fully distributed system with independent failure domains to a single process running in a docker image
-
-**Localized DB** - Using a filebacked SQL instance to persist relational data and context over using a distributed DB deployment or a DB service.
-
-**Enhanced local development** - Provide build targets that will customize and deploy locally so developers can build individual layers with no additional dependencies. Testing is also done locally before the rollout to external hosted instances making the build/test/deploy pipeline efficient.
-
-**Production Plans** - Make every design decision extensible to production. Internal Go methods can be plugged underneath gRPC interfaces to make the services truly distributed, DBs can be run in a cluster or a managed offering, LLM backends can be plugged in by swapping out API service keys, CLI-based clients can be integrated into any app and hosted services can be swapped out by changing access keys.
-
-**Security** - The project assumes trusted clients and hence ACLs and other security related features such as TLS are minimally enforced. 
-
-**LLM Heavy-Lifts** - The LLM is used for every other task besides the scope for agents (collect information from clients) and arbiter (persist information in database, exchange information with the LLM). The LLM assists not only in generating the responses, but also in normalizing data to be stored in the DB.
-
-*A note on what "heavy lift" does not mean.* The sentence above describes the
-**running system** — the LLM normalizes input and writes prose so the code does
-not have to. It is not a description of how the project was built. This was not
-a brief handed to an assistant; it was a working relationship in which review
-in both directions changed the design, and the record of that is kept rather
-than summarised.
+It was not a brief handed to an assistant. It was a working relationship in
+which review ran in both directions and changed the design, and the record of
+that is kept rather than summarised.
 
 [ClaudeFeedback.md](ClaudeFeedback.md) marks every pipeline change **[ASKED]**
 where I directed it and **[ADDED]** where Claude acted on its own, so direction
@@ -157,6 +137,30 @@ and the documents, and argued back when it disagreed. The
 [method section](ClaudeFeedback.md#method--tests-instead-of-line-by-line-review)
 is honest about the cost of that split — three of the six defects above would
 plausibly have been caught by a line-by-line review nobody had time to do.
+
+## Rollout
+
+Rollout is also done via specific targets in the Makefile for simplification. For production environments, this would be done via a service similar to Argo.
+
+
+# Design Decisions & Tradeoffs
+
+## Time Optimized
+
+The following design decisions were all made to address the time constraint.
+
+**Deployment Model** - From a fully distributed system with independent failure domains to a single process running in a docker image
+
+**Localized DB** - Using a filebacked SQL instance to persist relational data and context over using a distributed DB deployment or a DB service.
+
+**Enhanced local development** - Provide build targets that will customize and deploy locally so developers can build individual layers with no additional dependencies. Testing is also done locally before the rollout to external hosted instances making the build/test/deploy pipeline efficient.
+
+**Production Plans** - Make every design decision extensible to production. Internal Go methods can be plugged underneath gRPC interfaces to make the services truly distributed, DBs can be run in a cluster or a managed offering, LLM backends can be plugged in by swapping out API service keys, CLI-based clients can be integrated into any app and hosted services can be swapped out by changing access keys.
+
+**Security** - The project assumes trusted clients and hence ACLs and other security related features such as TLS are minimally enforced. 
+
+**LLM Heavy-Lifts** - The LLM is used for every other task besides the scope for agents (collect information from clients) and arbiter (persist information in database, exchange information with the LLM). The LLM assists not only in generating the responses, but also in normalizing data to be stored in the DB.
+
 
 # Key Challenges
 

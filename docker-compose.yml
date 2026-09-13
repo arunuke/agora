@@ -3,6 +3,16 @@ services:
     image: ${IMAGE_NAME:-agora:latest}
     container_name: agora
     restart: unless-stopped
+    # Per-member consult deadline. The 2s default is calibrated for the
+    # deterministic extractor, which answers instantly. A real provider does
+    # not: a single Anthropic extraction measured ~4.5s against the deployed
+    # host, so every member consult was cancelled mid-flight and the whole
+    # convene degraded to tier 2 while the key was healthy and working.
+    #
+    # 6s clears that with margin. The upper bound is the walkthrough's
+    # hanging-member step, which asserts the coordinator returns promptly:
+    # that budget is this deadline plus Loop B ranking (~3s measured).
+    command: ["--member-deadline", "6s"]
     ports:
       - "${HOST_PORT:-8080}:8080"
     volumes:
