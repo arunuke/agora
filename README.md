@@ -18,15 +18,24 @@ legibility a page would have provided, and for an isolation claim raw JSON is
 *more* credible than a rendered page — a page is a layer that could be filtering
 client-side.
 
-Start it with `make up` (see [Developer Experience](#developer-experience)),
-then `GET /` returns this same list, copy-pasteable.
-
-Set a host once and every example below works locally or against a deployment:
+**Nothing to build.** An instance is running and seeded. Set the host once and
+every example below works as written:
 
 ```bash
-HOST=http://localhost:8080          # local
-HOST=http://<your-host>             # deployed (port 80)
+HOST=http://ec2-44-244-111-94.us-west-2.compute.amazonaws.com
 ```
+
+```bash
+curl -s $HOST/healthz | jq        # start here — it should answer
+```
+
+`GET /` returns this same command list, copy-pasteable, from the instance
+itself. If you would rather run it yourself, see
+[Developer Experience](#developer-experience) and use
+`HOST=http://localhost:8080` instead — everything below is identical.
+
+It is a shared instance. If a previous visitor left it in an odd state,
+`curl -sX POST $HOST/v1/demo/reset` re-seeds it.
 
 ### Who is in the group
 
@@ -34,8 +43,9 @@ HOST=http://<your-host>             # deployed (port 80)
 curl -s $HOST/v1/members | jq
 ```
 
-The seeded family is Arya, Bran, Catelyn, Daenerys and Eddard. Each holds
-preferences the others cannot see.
+Five seeded members — Arya, Bran, Catelyn, Daenerys and Eddard — each holding
+preferences the others cannot see. A sixth appears if someone has run the
+walkthrough; `POST /v1/demo/reset` clears them.
 
 ### Post a preference
 
