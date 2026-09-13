@@ -248,7 +248,7 @@ A reviewer with no prior knowledge must reach every user story through these con
 
 1. **Functioning deployed prototype** at a public URL, exercised entirely via `curl`. No local install of anything, including client tooling. A `README` with copy-pasteable request blocks and a `demo.sh` remove the friction of hand-constructing requests.
 2. **Source code** in a public GitHub repository.
-3. **Design rationale**, in both formats: a written document (`ClaudeSummary.md`) and a ~5 minute recorded video. Both must cover: why this theme and approach, what is non-obvious about the idea, key design decisions and tradeoffs, how it would be extended with more time, and approximately how long it took.
+3. **Design rationale**, in both formats: a written document ([00_Rationale.md](00_Rationale.md)) and a ~5 minute recorded video. Both must cover: why this theme and approach, what is non-obvious about the idea, key design decisions and tradeoffs, how it would be extended with more time, and approximately how long it took.
 4. **AI transcripts**, alongside the code (`ClaudeFeedback.md` plus session exports).
 
 ---

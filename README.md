@@ -10,6 +10,36 @@ Coordinated agents that reconcile **private, mutually inaccessible context** int
 
 ---
 
+## Start here — the documents
+
+`docs/` is numbered in reading order. Start at `00` and stop whenever you have
+what you came for.
+
+| | Document | What it is | Written by |
+|---|---|---|---|
+| 00 | [Rationale](docs/00_Rationale.md) | Why this project exists, the theme, and what was traded away for time. **The design rationale doc.** | Arun |
+| 01 | [Requirements](docs/01_Requirements.md) | Problem statement, goals, user stories, success criteria | Arun |
+| 02 | [Design](docs/02_Design.md) | The original, unconstrained design — three services, a collector, gRPC | Arun |
+| 03 | [Implementation](docs/03_Implementation.md) | Service architecture and folder structure as first planned | Arun |
+| 04 | [Build-and-Deploy](docs/04_Build-and-Deploy.md) | Build targets, test modes, and the four use cases the scenario gate automates | Arun |
+| 05 | [ClaudeDirections](docs/05_ClaudeDirections.md) | The instructions Claude was given — the brief behind everything below | Arun |
+| 06 | [Rescoped](docs/06_Rescoped.md) | What was actually built, as a delta against 01–04. Every removal names its production successor | **Claude** |
+
+Three more sit outside the sequence, read at need rather than in order:
+
+| Document | What it is | Written by |
+|---|---|---|
+| [ClaudeFeedback](docs/ClaudeFeedback.md) | The collaboration log: every session, what changed, what was got wrong, time spent, and the tests-over-review trade | **Claude** |
+| [FAQ](docs/FAQ.md) | Design decisions as questions — including how long this took | Arun, with entries added by **Claude** |
+| [Guidelines](docs/Guidelines.md) | The assignment brief itself | — |
+
+**On 02 and 03:** they describe the system as originally specified, not as built.
+They are left untouched on purpose — the rescoping is recorded as a delta in
+`06` rather than by editing the originals, so the difference between what was
+planned and what shipped stays legible.
+
+---
+
 ## User Experience
 
 Everything is HTTP and JSON on one port. There is no web UI **on purpose**: the
